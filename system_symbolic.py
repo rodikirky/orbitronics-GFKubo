@@ -1,6 +1,7 @@
 import numpy as np
 import sympy as sp
 
+
 class HamiltonianSystem:
     """
     Initialize the system with physical parameters and an optional basis.
@@ -10,13 +11,14 @@ class HamiltonianSystem:
        - basis: 3x3 matrix; if None, uses identity matrix
        - symbolic: If True, use sympy instead of numpy
     """
+
     def __init__(self,
-             mass,
-             orbital_texture_coupling,
-             exchange_interaction_coupling,
-             magnetisation,
-             basis=None,
-             symbolic=False):
+                 mass,
+                 orbital_texture_coupling,
+                 exchange_interaction_coupling,
+                 magnetisation,
+                 basis=None,
+                 symbolic=False):
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -49,8 +51,10 @@ class HamiltonianSystem:
 
         # Safe assignment of scalars
         self.mass = sp.sympify(mass) if symbolic else float(mass)
-        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(orbital_texture_coupling)
-        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(exchange_interaction_coupling)
+        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(
+            orbital_texture_coupling)
+        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(
+            exchange_interaction_coupling)
 
         # Safe assignment of magnetisation
         self.M = self._sanitize_vector(magnetisation)
@@ -83,7 +87,8 @@ class HamiltonianSystem:
         if self.symbolic:
             is_identity = self.basis == I
         else:
-            is_identity = np.allclose(np.array(self.basis).astype(np.float64), np.eye(3))
+            is_identity = np.allclose(
+                np.array(self.basis).astype(np.float64), np.eye(3))
 
         if is_identity:
             Ls = [Lx, Ly, Lz]
@@ -100,7 +105,7 @@ class HamiltonianSystem:
         """Compute symbolic or numeric potential energy."""
         b = self.backend
         k = self._sanitize_vector(momentum)
-        
+
         if self.symbolic:
             dot_kL = sum(k[i] * self.L[i] for i in range(3))
             dot_ML = sum(self.M[i] * self.L[i] for i in range(3))
@@ -112,7 +117,6 @@ class HamiltonianSystem:
         exchange_term = self.J * dot_ML
         return orbital_term + exchange_term
 
-
     def get_hamiltonian(self, momentum):
         """Return symbolic or numeric Hamiltonian."""
         k = self._sanitize_vector(momentum)
@@ -122,7 +126,8 @@ class HamiltonianSystem:
     def get_symbolic_hamiltonian(self):
         """Convenience method to return Hamiltonian with default symbols."""
         if not self.symbolic:
-            raise ValueError("Hamiltonian is not symbolic. Set symbolic=True at init.")
+            raise ValueError(
+                "Hamiltonian is not symbolic. Set symbolic=True at init.")
         kx, ky, kz = sp.symbols("k_x k_y k_z", real=True)
         momentum = [kx, ky, kz]
         return self.get_hamiltonian(momentum)
