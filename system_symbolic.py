@@ -2,29 +2,30 @@ import numpy as np
 import sympy as sp
 
 class HamiltonianSystem:
+    """
+    Initialize the system with physical parameters and an optional basis.
+
+    Parameters:
+       - mass, gamma, J, M: Can be numeric or symbolic
+       - basis: 3x3 matrix; if None, uses identity matrix
+       - symbolic: If True, use sympy instead of numpy
+    """
     def __init__(self,
-                 mass,
-                 orbital_texture_coupling,
-                 exchange_interaction_coupling,
-                 magnetisation,
-                 basis=None,
-                 symbolic=False):
-        """
-        Initialize the system with physical parameters and an optional basis.
-
-        Parameters:
-        - mass, gamma, J, M: Can be numeric or symbolic
-        - basis: 3x3 matrix; if None, uses identity matrix
-        - symbolic: If True, use sympy instead of numpy
-        """
-        self.symbolic = symbolic
-        self.backend = sp if symbolic else np
-
-        self.mass = mass
-        self.gamma = orbital_texture_coupling
-        self.J = exchange_interaction_coupling
-        self.M = magnetisation
-        self.set_basis(np.eye(3) if basis is None else basis)
+             mass,
+             orbital_texture_coupling,
+             exchange_interaction_coupling,
+             magnetisation,
+             basis=None,
+             symbolic=False):
+         self.symbolic = symbolic
+         self.backend = sp if symbolic else np
+         self.mass = mass
+         self.gamma = orbital_texture_coupling
+         self.J = exchange_interaction_coupling
+         self.M = magnetisation
+         
+         default_eye = sp.eye(3) if symbolic else np.eye(3)
+         self.set_basis(default_eye if basis is None else basis)
 
     def set_basis(self, basis):
         """Set angular momentum operators in the given basis."""
