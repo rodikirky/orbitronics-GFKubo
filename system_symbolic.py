@@ -22,14 +22,13 @@ class OrbitronicHamiltonianSystem:
     - symbolic: Whether to use symbolic backend (SymPy) or numeric (NumPy)
     """
 
-
     def __init__(self,
-                mass: Union[float, sp.Basic],
-                orbital_texture_coupling: Union[float, sp.Basic],
-                exchange_interaction_coupling: Union[float, sp.Basic],
-                magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
-                basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
-                symbolic: bool = False):
+                 mass: Union[float, sp.Basic],
+                 orbital_texture_coupling: Union[float, sp.Basic],
+                 exchange_interaction_coupling: Union[float, sp.Basic],
+                 magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
+                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
+                 symbolic: bool = False):
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -77,7 +76,7 @@ class OrbitronicHamiltonianSystem:
         """Ensure vector is in the correct format for symbolic or numeric calculations."""
         if self.symbolic:
             if isinstance(v, np.ndarray):
-                return [sp.sympify(val) for val in v] 
+                return [sp.sympify(val) for val in v]
             elif isinstance(v, sp.Matrix):
                 return list(v)
             else:
@@ -96,7 +95,7 @@ class OrbitronicHamiltonianSystem:
         self.basis = b.Matrix(basis)
 
         # Determine whether the provided basis is the identity matrix
-        is_identity = False 
+        is_identity = False
         if self.symbolic:
             is_identity = self.basis == I
         else:
