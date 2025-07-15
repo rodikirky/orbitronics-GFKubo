@@ -17,15 +17,57 @@ class HamiltonianSystem:
              magnetisation,
              basis=None,
              symbolic=False):
-         self.symbolic = symbolic
-         self.backend = sp if symbolic else np
-         self.mass = mass
-         self.gamma = orbital_texture_coupling
-         self.J = exchange_interaction_coupling
-         self.M = magnetisation
-         
-         default_eye = sp.eye(3) if symbolic else np.eye(3)
-         self.set_basis(default_eye if basis is None else basis)
+
+        def _is_symbolic(val):
+            return isinstance(val, sp.Basic)
+
+        # Check consistency if symbolic=False
+        if not symbolic:
+            scalar_params = {
+                "mass": mass,
+                "orbital_texture_coupling": orbital_texture_coupling,
+                "exchange_interaction_coupling": exchange_interaction_coupling
+            }
+            for name, val in scalar_params.items():
+                if _is_symbolic(val):
+                    raise TypeError(
+                        f"Cannot use symbolic value for '{name}' when symbolic=False.\n"
+                        f"Hint: Set symbolic=True if you want to use symbols like '{val}'."
+                    )
+
+            if isinstance(magnetisation, (list, tuple, np.ndarray)):
+                for i, val in enumerate(magnetisation):
+                    if _is_symbolic(val):
+                        raise TypeError(
+                            f"Cannot use symbolic value for 'magnetisation[{i}]' when symbolic=False.\n"
+                            f"Hint: Set symbolic=True if you want to use symbols like '{val}'."
+                        )
+
+        # Set symbolic mode
+        self.symbolic = symbolic
+        self.backend = sp if symbolic else np
+
+        # Safe assignment of scalars
+        self.mass = sp.sympify(mass) if symbolic else float(mass)
+        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(orbital_texture_coupling)
+        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(exchange_interaction_coupling)
+
+        # Safe assignment of magnetisation
+        self.M = self._sanitize_vector(magnetisation)
+
+        default_eye = sp.eye(3) if symbolic else np.eye(3)
+        self.set_basis(default_eye if basis is None else basis)
+
+    def _sanitize_vector(self, v):
+        if self.symbolic:
+            if isinstance(v, np.ndarray):
+                return [sp.sympify(val) for val in v]
+            elif isinstance(v, sp.Matrix):
+                return list(v)
+            else:
+                return v  # assume already symbolic list
+        else:
+            return np.asarray(v, dtype=np.float64)
 
     def set_basis(self, basis):
         """Set angular momentum operators in the given basis."""
@@ -57,7 +99,7 @@ class HamiltonianSystem:
     def get_potential(self, momentum):
         """Compute symbolic or numeric potential energy."""
         b = self.backend
-        k = momentum
+        k = self._sanitize_vector(momentum)
         
         if self.symbolic:
             dot_kL = sum(k[i] * self.L[i] for i in range(3))
@@ -73,6 +115,7 @@ class HamiltonianSystem:
 
     def get_hamiltonian(self, momentum):
         """Return symbolic or numeric Hamiltonian."""
+        k = self._sanitize_vector(momentum)
         kinetic = sum(momentum[i]**2 for i in range(3)) / (2 * self.mass)
         return kinetic + self.get_potential(momentum)
 
