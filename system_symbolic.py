@@ -1,24 +1,35 @@
+from typing import Union, List, Optional
 import numpy as np
 import sympy as sp
 
 
-class HamiltonianSystem:
+class OrbitronicHamiltonianSystem:
     """
-    Initialize the system with physical parameters and an optional basis.
+    OrbitronicHamiltonianSystem represents an orbitronic quantum system 
+    in either a symbolic or numeric mode.
+
+    Supports computation of angular momentum-coupled potentials and Hamiltonians
+    in a specified basis. Accepts both symbolic expressions (via SymPy) and 
+    numerical arrays (via NumPy), making it suitable for both analytical modeling 
+    and simulation.
 
     Parameters:
-       - mass, gamma, J, M: Can be numeric or symbolic
-       - basis: 3x3 matrix; if None, uses identity matrix
-       - symbolic: If True, use sympy instead of numpy
+    - mass: Scalar mass (numeric or symbolic)
+    - orbital_texture_coupling: Coupling strength γ
+    - exchange_interaction_coupling: Coupling strength J
+    - magnetisation: 3D vector representing magnetic moment
+    - basis: Optional 3×3 matrix defining basis transformation
+    - symbolic: Whether to use symbolic backend (SymPy) or numeric (NumPy)
     """
 
+
     def __init__(self,
-                 mass,
-                 orbital_texture_coupling,
-                 exchange_interaction_coupling,
-                 magnetisation,
-                 basis=None,
-                 symbolic=False):
+                mass: Union[float, sp.Basic],
+                orbital_texture_coupling: Union[float, sp.Basic],
+                exchange_interaction_coupling: Union[float, sp.Basic],
+                magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
+                basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
+                symbolic: bool = False):
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -62,10 +73,11 @@ class HamiltonianSystem:
         default_eye = sp.eye(3) if symbolic else np.eye(3)
         self.set_basis(default_eye if basis is None else basis)
 
-    def _sanitize_vector(self, v):
+    def _sanitize_vector(self, v: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, List[sp.Basic]]:
+        """Ensure vector is in the correct format for symbolic or numeric calculations."""
         if self.symbolic:
             if isinstance(v, np.ndarray):
-                return [sp.sympify(val) for val in v]
+                return [sp.sympify(val) for val in v] 
             elif isinstance(v, sp.Matrix):
                 return list(v)
             else:
@@ -73,7 +85,7 @@ class HamiltonianSystem:
         else:
             return np.asarray(v, dtype=np.float64)
 
-    def set_basis(self, basis):
+    def set_basis(self, basis: Union[np.ndarray, sp.Matrix]) -> None:
         """Set angular momentum operators in the given basis."""
         b = self.backend
         Lx = b.Matrix([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]])
@@ -83,7 +95,8 @@ class HamiltonianSystem:
 
         self.basis = b.Matrix(basis)
 
-        is_identity = False
+        # Determine whether the provided basis is the identity matrix
+        is_identity = False 
         if self.symbolic:
             is_identity = self.basis == I
         else:
@@ -101,7 +114,7 @@ class HamiltonianSystem:
         else:
             self.L = np.stack(Ls, axis=0)  # 3D array: shape (3, 3, 3)
 
-    def get_potential(self, momentum):
+    def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
         b = self.backend
         k = self._sanitize_vector(momentum)
@@ -117,13 +130,13 @@ class HamiltonianSystem:
         exchange_term = self.J * dot_ML
         return orbital_term + exchange_term
 
-    def get_hamiltonian(self, momentum):
+    def get_hamiltonian(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Return symbolic or numeric Hamiltonian."""
         k = self._sanitize_vector(momentum)
         kinetic = sum(k[i]**2 for i in range(3)) / (2 * self.mass)
         return kinetic + self.get_potential(momentum)
 
-    def get_symbolic_hamiltonian(self):
+    def get_symbolic_hamiltonian(self) -> sp.Matrix:
         """Convenience method to return Hamiltonian with default symbols."""
         if not self.symbolic:
             raise ValueError(
