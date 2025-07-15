@@ -30,26 +30,46 @@ class HamiltonianSystem:
     def set_basis(self, basis):
         """Set angular momentum operators in the given basis."""
         b = self.backend
-        I = b.eye(3)
         Lx = b.Matrix([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]])
         Ly = b.Matrix([[0, 0, 1j], [0, 0, 0], [-1j, 0, 0]])
         Lz = b.Matrix([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]])
+        I = b.eye(3)
 
         self.basis = b.Matrix(basis)
-        if self.symbolic or np.allclose(np.array(self.basis).astype(np.float64), np.eye(3)):
-            self.L = [Lx, Ly, Lz]
+
+        is_identity = False
+        if self.symbolic:
+            is_identity = self.basis == I
+        else:
+            is_identity = np.allclose(np.array(self.basis).astype(np.float64), np.eye(3))
+
+        if is_identity:
+            Ls = [Lx, Ly, Lz]
         else:
             U = self.basis
-            self.L = [U @ L @ U.T for L in (Lx, Ly, Lz)]
+            Ls = [U @ L @ U.T for L in (Lx, Ly, Lz)]
+
+        if self.symbolic:
+            self.L = Ls  # plain list
+        else:
+            self.L = np.stack(Ls, axis=0)  # 3D array: shape (3, 3, 3)
 
     def get_potential(self, momentum):
         """Compute symbolic or numeric potential energy."""
-        k = momentum
         b = self.backend
-        dot_kL = sum(k[i] * self.L[i] for i in range(3))
-        orbital_term = self.gamma * (dot_kL ** 2)
-        exchange_term = self.J * sum(self.M[i] * self.L[i] for i in range(3))
+        k = momentum
+        
+        if self.symbolic:
+            dot_kL = sum(k[i] * self.L[i] for i in range(3))
+            dot_ML = sum(self.M[i] * self.L[i] for i in range(3))
+        else:
+            dot_kL = np.tensordot(k, self.L, axes=1)
+            dot_ML = np.tensordot(self.M, self.L, axes=1)
+
+        orbital_term = self.gamma * (dot_kL @ dot_kL)
+        exchange_term = self.J * dot_ML
         return orbital_term + exchange_term
+
 
     def get_hamiltonian(self, momentum):
         """Return symbolic or numeric Hamiltonian."""
