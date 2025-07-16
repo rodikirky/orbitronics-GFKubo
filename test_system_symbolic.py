@@ -24,4 +24,4 @@ def test_create_symbolic_system():
     print("✅ Symbolic system created successfully.")
 
 test_create_numeric_system()
-#test_create_symbolic_system()
+test_create_symbolic_system()
