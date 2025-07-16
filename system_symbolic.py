@@ -23,12 +23,12 @@ class OrbitronicHamiltonianSystem:
     """
 
     def __init__(self,
-                 mass: Union[float, sp.Basic],
-                 orbital_texture_coupling: Union[float, sp.Basic],
-                 exchange_interaction_coupling: Union[float, sp.Basic],
+                 mass: Union[float, sp.Basic], # effective mass for the material
+                 orbital_texture_coupling: Union[float, sp.Basic], # kL coupling
+                 exchange_interaction_coupling: Union[float, sp.Basic], # zero for nonmagnets
                  magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
-                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
-                 symbolic: bool = False):
+                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None, # default leads to canonical L matrices
+                 symbolic: bool = False): # default symbolic=False for numeric mode
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
