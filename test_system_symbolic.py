@@ -37,5 +37,19 @@ def test_create_symbolic_system():
         magnetisation=[Mx, 0, 0],
         symbolic=True
     )
-    print("✅ Symbolic system created successfully.")
+    assert isinstance(system.mass, sp.Basic), "Expected 'mass' to be a sympy symbol in symbolic mode."
+    assert isinstance(system.gamma, sp.Basic), "Expected 'gamma' to be a sympy symbol in symbolic mode."
+    assert isinstance(system.J, sp.Basic), "Expected 'J' to be a sympy symbol in symbolic mode."
+
+    assert isinstance(system.M, (sp.Matrix, list)), "Expected 'M' to be a sympy Matrix in symbolic mode."
+    assert system.M.shape == (3, 1)
+    assert system.M[0] == Mx
+    assert system.M[1] == 0
+    assert system.M[2] == 0
+
+    assert isinstance(system.basis, sp.Matrix)
+    assert system.basis.shape == (3, 3)
+    assert system.basis == sp.eye(3)
+
+    assert system.symbolic is True
 
