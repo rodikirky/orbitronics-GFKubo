@@ -75,7 +75,10 @@ def test_symbolic_hamiltonian_entries():
     kx = sp.symbols("kx")
     H = system.get_hamiltonian([kx, 0, 0])
     assert H.shape == (3, 3)
-    assert isinstance(H[0, 0], sp.Basic)
+    for i, entry in enumerate(H): # flattens the matrix to a list for checking
+        assert isinstance(entry, sp.Basic), f"H[{i}] is invalid: {repr(entry)} (type: {type(entry)})" # checks all entries of H for symbolic consistency
     H_symb = system.get_hamiltonian([kx, 0, 0])
     assert H_symb.shape == (3, 3)
-    assert isinstance(H_symb[0, 0], sp.Basic)
+    for i, entry in enumerate(H_symb): # flattens the matrix to a list for checking
+        assert isinstance(entry, sp.Basic), f"H_symb[{i}] is invalid: {repr(entry)} (type: {type(entry)})" # checks all entries of H for symbolic consistency
+    assert H == H_symb, "Symbolic Hamiltonian should be equal to itself."
