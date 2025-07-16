@@ -84,24 +84,24 @@ def test_symbolic_hamiltonian_entries():
         assert isinstance(entry, sp.Basic), f"H_symb[{i}] is invalid: {repr(entry)} (type: {type(entry)})" # checks all entries of H for symbolic consistency
     assert H == H_symb, "Symbolic Hamiltonian should be equal to itself."
 
-    # ────────────────────────────────
-    # Error Handling
-    # ────────────────────────────────
+# ────────────────────────────────
+# Error Handling
+# ────────────────────────────────
 
-    def test_symbolic_input_to_numeric_raises():
-        m = sp.Symbol("m")
-        with pytest.raises(TypeError):
-            OrbitronicHamiltonianSystem(
-                mass=m, orbital_texture_coupling=1.0,
-                exchange_interaction_coupling=1.0, magnetisation=[1, 0, 0],
-                symbolic=False
-            )
+def test_symbolic_input_to_numeric_raises():
+    m = sp.Symbol("m")
+    with pytest.raises(TypeError):
+        OrbitronicHamiltonianSystem(
+            mass=m, orbital_texture_coupling=1.0,
+            exchange_interaction_coupling=1.0, magnetisation=[1, 0, 0],
+            symbolic=False
+        )
 
-    def test_symbolic_magnetisation_in_numeric_mode_raises():
-        Mx = sp.Symbol("Mx")
-        with pytest.raises(TypeError):
-            OrbitronicHamiltonianSystem(
-                mass=1.0, orbital_texture_coupling=1.0,
-                exchange_interaction_coupling=1.0, magnetisation=[Mx, 0, 0],
-                symbolic=False
-            )
+def test_symbolic_magnetisation_in_numeric_mode_raises():
+    Mx = sp.Symbol("Mx")
+    with pytest.raises(TypeError):
+        OrbitronicHamiltonianSystem(
+            mass=1.0, orbital_texture_coupling=1.0,
+            exchange_interaction_coupling=1.0, magnetisation=[Mx, 0, 0],
+            symbolic=False
+        )
