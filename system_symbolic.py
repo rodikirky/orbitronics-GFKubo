@@ -115,8 +115,8 @@ class OrbitronicHamiltonianSystem:
         k = self._sanitize_vector(momentum)
 
         if self.symbolic:
-            dot_kL = sum(k[i] * self.L[i] for i in range(3))
-            dot_ML = sum(self.M[i] * self.L[i] for i in range(3))
+            dot_kL = sum((k[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
+            dot_ML = sum((self.M[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
         else:
             dot_kL = np.tensordot(k, self.L, axes=1)
             dot_ML = np.tensordot(self.M, self.L, axes=1)
