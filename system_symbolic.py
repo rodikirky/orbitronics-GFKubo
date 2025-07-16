@@ -69,8 +69,9 @@ class OrbitronicHamiltonianSystem:
         # Safe assignment of magnetisation
         self.M = self._sanitize_vector(magnetisation)
 
-        default_eye = sp.eye(3) if symbolic else np.eye(3)
-        self.set_basis(default_eye if basis is None else basis)
+        self.identity = sp.eye(3) if symbolic else np.eye(3)
+        self.make_matrix = sp.Matrix if symbolic else np.array
+        self.set_basis(self.identity if basis is None else basis)
 
     def _sanitize_vector(self, v: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, List[sp.Basic]]:
         """Ensure vector is in the correct format for symbolic or numeric calculations."""
@@ -87,12 +88,12 @@ class OrbitronicHamiltonianSystem:
     def set_basis(self, basis: Union[np.ndarray, sp.Matrix]) -> None:
         """Set angular momentum operators in the given basis."""
         b = self.backend
-        Lx = b.Matrix([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]])
-        Ly = b.Matrix([[0, 0, 1j], [0, 0, 0], [-1j, 0, 0]])
-        Lz = b.Matrix([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]])
-        I = b.eye(3)
+        Lx = self.make_matrix([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]])
+        Ly = self.make_matrix([[0, 0, 1j], [0, 0, 0], [-1j, 0, 0]])
+        Lz = self.make_matrix([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]])
+        I = self.identity
 
-        self.basis = b.Matrix(basis)
+        self.basis = self.make_matrix(basis)
 
         # Determine whether the provided basis is the identity matrix
         is_identity = False
