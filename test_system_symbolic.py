@@ -2,6 +2,10 @@ from system_symbolic import OrbitronicHamiltonianSystem
 import numpy as np
 import sympy as sp
 
+# ────────────────────────────────
+# Basic Instantiation Tests 
+# ────────────────────────────────
+
 def test_create_numeric_system():
     system = OrbitronicHamiltonianSystem(
         mass=1.0,
@@ -10,7 +14,19 @@ def test_create_numeric_system():
         magnetisation=[1, 0, 0],
         symbolic=False
     )
-    print("✅ Numeric system created successfully.")
+    assert isinstance(system.mass, float)
+    assert isinstance(system.gamma, float)
+    assert isinstance(system.J, float)
+
+    assert isinstance(system.M, np.ndarray)
+    assert system.M.shape == (3,)
+    assert np.allclose(system.M, [1, 0, 0])
+
+    assert isinstance(system.basis, np.ndarray)
+    assert system.basis.shape == (3, 3)
+    assert np.allclose(system.basis, np.eye(3))
+
+    assert system.symbolic is False
 
 def test_create_symbolic_system():
     m, gamma, J, Mx = sp.symbols("m gamma J Mx")
@@ -23,5 +39,3 @@ def test_create_symbolic_system():
     )
     print("✅ Symbolic system created successfully.")
 
-test_create_numeric_system()
-test_create_symbolic_system()
