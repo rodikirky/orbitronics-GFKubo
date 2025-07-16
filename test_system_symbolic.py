@@ -14,19 +14,19 @@ def test_create_numeric_system():
         magnetisation=[1, 0, 0],
         symbolic=False
     )
-    assert isinstance(system.mass, float)
-    assert isinstance(system.gamma, float)
-    assert isinstance(system.J, float)
+    assert isinstance(system.mass, float), "Expected 'mass' to be a float in numeric mode."
+    assert isinstance(system.gamma, float), "Expected 'gamma' to be a float in numeric mode."
+    assert isinstance(system.J, float), "Expected 'J' to be a float in numeric mode."
 
-    assert isinstance(system.M, np.ndarray)
-    assert system.M.shape == (3,)
-    assert np.allclose(system.M, [1, 0, 0])
+    assert isinstance(system.M, np.ndarray), "Expected 'magnetisation' to be an np.ndarray in numeric mode."
+    assert system.M.shape == (3,), "Expected 'mass' be an np.array of (3,) shape in numeric mode."
+    assert np.allclose(system.M, [1, 0, 0]), "Expected M to stay equal to magnetisation input."
 
-    assert isinstance(system.basis, np.ndarray)
-    assert system.basis.shape == (3, 3)
-    assert np.allclose(system.basis, np.eye(3))
+    assert isinstance(system.basis, np.ndarray), "Expected 'basis' to be a np.ndarray in numeric mode."
+    assert system.basis.shape == (3, 3), "Expected basis shape (3,3)."
+    assert np.allclose(system.basis, np.eye(3)), "Expected default basis as identity."
 
-    assert system.symbolic is False
+    assert system.symbolic is False, "Expected numeric mode."
 
 def test_create_symbolic_system():
     m, gamma, J, Mx = sp.symbols("m gamma J Mx")
@@ -64,8 +64,14 @@ def test_numeric_hamiltonian_shape():
     assert isinstance(H, np.ndarray)
 
 def test_symbolic_hamiltonian_entries():
-    m, gamma, J = sp.symbols("m gamma J")
-    system = OrbitronicHamiltonianSystem(m, gamma, J, [0, 0, 0], symbolic=True)
+    m, gamma, J, Mx = sp.symbols("m gamma J Mx")
+    system = OrbitronicHamiltonianSystem(
+        mass=m,
+        orbital_texture_coupling=gamma,
+        exchange_interaction_coupling=J,
+        magnetisation=[Mx, 0, 0],
+        symbolic=True
+    )
     H = system.get_symbolic_hamiltonian()
     assert H.shape == (3, 3)
     assert isinstance(H[0, 0], sp.Basic)
