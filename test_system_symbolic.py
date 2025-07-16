@@ -3,7 +3,7 @@ import numpy as np
 import sympy as sp
 
 # ────────────────────────────────
-# Basic Instantiation Tests 
+# Basic Instantiation 
 # ────────────────────────────────
 
 def test_create_numeric_system():
@@ -53,3 +53,19 @@ def test_create_symbolic_system():
 
     assert system.symbolic is True
 
+# ────────────────────────────────
+# Hamiltonian Construction
+# ────────────────────────────────
+
+def test_numeric_hamiltonian_shape():
+    system = OrbitronicHamiltonianSystem(1.0, 1.0, 0.0, [0, 0, 0], symbolic=False)
+    H = system.get_hamiltonian([1.0, 0.0, 0.0])
+    assert H.shape == (3, 3)
+    assert isinstance(H, np.ndarray)
+
+def test_symbolic_hamiltonian_entries():
+    m, gamma, J = sp.symbols("m gamma J")
+    system = OrbitronicHamiltonianSystem(m, gamma, J, [0, 0, 0], symbolic=True)
+    H = system.get_symbolic_hamiltonian()
+    assert H.shape == (3, 3)
+    assert isinstance(H[0, 0], sp.Basic)
