@@ -41,7 +41,7 @@ def test_create_symbolic_system():
     assert isinstance(system.gamma, sp.Basic), "Expected 'gamma' to be a sympy symbol in symbolic mode."
     assert isinstance(system.J, sp.Basic), "Expected 'J' to be a sympy symbol in symbolic mode."
 
-    assert isinstance(system.M, (sp.Matrix, list)), "Expected 'M' to be a sympy Matrix in symbolic mode."
+    assert isinstance(system.M, sp.Matrix), "Expected 'M' to be a sympy Matrix in symbolic mode."
     assert system.M.shape == (3, 1)
     assert system.M[0] == Mx
     assert system.M[1] == 0

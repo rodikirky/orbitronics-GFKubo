@@ -76,14 +76,9 @@ class OrbitronicHamiltonianSystem:
     def _sanitize_vector(self, v: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, List[sp.Basic]]:
         """Ensure vector is in the correct format for symbolic or numeric calculations."""
         if self.symbolic:
-            if isinstance(v, np.ndarray):
-                return [sp.sympify(val) for val in v]
-            elif isinstance(v, sp.Matrix):
-                return list(v)
-            else:
-                return v  # assume already symbolic list
+            return sp.Matrix(v)
         else:
-            return np.asarray(v, dtype=np.float64)
+            return np.array(v, dtype=float)
 
     def set_basis(self, basis: Union[np.ndarray, sp.Matrix]) -> None:
         """Set angular momentum operators in the given basis."""
