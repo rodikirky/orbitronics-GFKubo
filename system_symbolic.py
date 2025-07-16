@@ -129,6 +129,7 @@ class OrbitronicHamiltonianSystem:
         """Return symbolic or numeric Hamiltonian."""
         k = self._sanitize_vector(momentum)
         kinetic = sum(k[i]**2 for i in range(3)) / (2 * self.mass)
+        kinetic = kinetic* self.identity
         return kinetic + self.get_potential(momentum)
 
     def get_symbolic_hamiltonian(self) -> sp.Matrix:

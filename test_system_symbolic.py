@@ -73,7 +73,6 @@ def test_symbolic_hamiltonian_entries():
         symbolic=True
     )
     kx = sp.symbols("kx")
-    #H = system.get_hamiltonian([kx, 0, 0])
-    V = system.get_potential([kx, 0, 0])
+    H = system.get_hamiltonian([kx, 0, 0])
     #assert H.shape == (3, 3)
     #assert isinstance(H[0, 0], sp.Basic)
