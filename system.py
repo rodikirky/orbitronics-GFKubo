@@ -102,7 +102,15 @@ class OrbitronicHamiltonianSystem:
             Ls = [Lx, Ly, Lz]
         else:
             U = self.basis
-            Ls = [U @ L @ U.T for L in (Lx, Ly, Lz)]
+            if self.symbolic:
+                assert U.inv() is not None, "Basis must be invertible."
+                assert sp.simplify(U.inv()) == sp.simplify(U.adjoint()), "Basis must be unitary."
+                U_dagger = U.adjoint()
+            else:
+                assert np.linalg.inv(U) is not None, "Basis must be invertible."
+                assert np.allclose(np.linalg.inv(U), U.T.conj()), "Basis must be unitary."
+                U_dagger = np.linalg.inv(U)
+            Ls = [U @ L @ U_dagger for L in (Lx, Ly, Lz)]
 
         if self.symbolic:
             self.L = Ls  # plain list
