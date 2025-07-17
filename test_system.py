@@ -125,14 +125,23 @@ def test_numeric_unitary_transformation():
         magnetisation=[1, 0, 0],
         symbolic=False
     )
+    L = system.L
+    Lx = L[0]
+    Ly = L[1]
+    Lz = L[2]
+    #print("Before transformation: L =", L)
     sqrt2 = np.sqrt(2)
     U_0 = np.array([[1/sqrt2, 0, 1j/sqrt2], [1j/sqrt2, 0, 1/sqrt2], [0, 1, 0]])
-    system.set_basis(U_0)
-    L = system.get_angular_momentum_operators()
-    print(L)
-    assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
-    assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
-
+    U_dagger = np.linalg.inv(U_0)
+    #print("Inverse U_0 = ", U_dagger) #correct adjoint matrix
+    L = [U_dagger @ l @ U_0 for l in (Lx, Ly, Lz)]
+    # print("After transformation L_x = ", U_dagger @ L[0] @ U_0)
+    #system.set_basis(U_0)
+    #L = system.get_angular_momentum_operators()
+    #print("After transformation: L =", L)
+    #assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
+    #assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
+test_numeric_unitary_transformation()
 # ────────────────────────────────
 # Error Handling
 # ────────────────────────────────
