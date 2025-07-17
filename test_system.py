@@ -85,6 +85,40 @@ def test_symbolic_hamiltonian_entries():
     assert H == H_symb, "Symbolic Hamiltonian should be equal to itself."
 
 # ────────────────────────────────
+# Basis Change
+# ────────────────────────────────
+
+def test_symbolic_basis_change_sanity():
+    m, gamma, J, Mx = sp.symbols("m gamma J Mx")
+    system = OrbitronicHamiltonianSystem(
+        mass=m,
+        orbital_texture_coupling=gamma,
+        exchange_interaction_coupling=J,
+        magnetisation=[Mx, 0, 0],
+        symbolic=True
+    )
+    system.set_basis(sp.Matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])) # this means no actual change
+    L = system.get_angular_momentum_operators()
+    assert isinstance(L, list), "Expected angular momentum operators to be a list in symbolic mode."
+    assert len(L) == 3, "Expected three angular momentum operators."
+    for op in L:
+        assert isinstance(op, sp.Matrix), "Expected each operator to be a sympy Matrix."
+
+def test_numeric_basis_change_sanity():
+    system = OrbitronicHamiltonianSystem(
+        mass=1.0,
+        orbital_texture_coupling=1.0,
+        exchange_interaction_coupling=1.0,
+        magnetisation=[1, 0, 0],
+        symbolic=False
+    )
+    system.set_basis(np.eye(3)) # this means no actual change
+    L = system.get_angular_momentum_operators()
+    assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
+    assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
+
+
+# ────────────────────────────────
 # Error Handling
 # ────────────────────────────────
 
