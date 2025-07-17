@@ -117,6 +117,21 @@ def test_numeric_basis_change_sanity():
     assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
     assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
 
+def test_numeric_unitary_transformation():
+    system = OrbitronicHamiltonianSystem(
+        mass=1.0,
+        orbital_texture_coupling=1.0,
+        exchange_interaction_coupling=1.0,
+        magnetisation=[1, 0, 0],
+        symbolic=False
+    )
+    sqrt2 = np.sqrt(2)
+    U_0 = np.array([[1/sqrt2, 0, 1j/sqrt2], [1j/sqrt2, 0, 1/sqrt2], [0, 1, 0]])
+    system.set_basis(U_0)
+    L = system.get_angular_momentum_operators()
+    print(L)
+    assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
+    assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
 
 # ────────────────────────────────
 # Error Handling
