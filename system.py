@@ -95,7 +95,7 @@ class OrbitronicHamiltonianSystem:
         if self.symbolic:
             is_identity = self.basis == I
         else:
-            if np.iscomplex(self.basis):
+            if np.iscomplex(self.basis).any():
                 is_identity = False
             else:
                 is_identity = np.allclose(
