@@ -108,6 +108,10 @@ class OrbitronicHamiltonianSystem:
             self.L = Ls  # plain list
         else:
             self.L = np.stack(Ls, axis=0)  # 3D array: shape (3, 3, 3)
+    
+    def get_angular_momentum_operators(self) -> Union[List[sp.Matrix], np.ndarray]:
+        """Return angular momentum operators in the current basis."""
+        return self.L
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
