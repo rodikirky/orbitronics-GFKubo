@@ -98,7 +98,7 @@ def test_symbolic_basis_change_sanity():
         symbolic=True
     )
     system.set_basis(sp.Matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])) # this means no actual change
-    L = system.get_angular_momentum_operators()
+    L = system.L
     assert isinstance(L, list), "Expected angular momentum operators to be a list in symbolic mode."
     assert len(L) == 3, "Expected three angular momentum operators."
     for op in L:
@@ -113,7 +113,7 @@ def test_numeric_basis_change_sanity():
         symbolic=False
     )
     system.set_basis(np.eye(3)) # this means no actual change
-    L = system.get_angular_momentum_operators()
+    L = system.L
     assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
     assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
 
@@ -129,19 +129,18 @@ def test_numeric_unitary_transformation():
     Lx = L[0]
     Ly = L[1]
     Lz = L[2]
-    #print("Before transformation: L =", L)
+    #print("Before transformation: Lx =", L[0]) # for comparison to the analytical result
     sqrt2 = np.sqrt(2)
-    U_0 = np.array([[1/sqrt2, 0, 1j/sqrt2], [1j/sqrt2, 0, 1/sqrt2], [0, 1, 0]])
-    U_dagger = np.linalg.inv(U_0)
+    U_0 = np.array([[-1j/sqrt2, 0, 1j/sqrt2], [1/sqrt2, 0, 1/sqrt2], [0, 1j, 0]])
+    #U_dagger = np.linalg.inv(U_0)
     #print("Inverse U_0 = ", U_dagger) #correct adjoint matrix
-    L = [U_dagger @ l @ U_0 for l in (Lx, Ly, Lz)]
-    # print("After transformation L_x = ", U_dagger @ L[0] @ U_0)
-    #system.set_basis(U_0)
-    #L = system.get_angular_momentum_operators()
-    #print("After transformation: L =", L)
-    #assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
-    #assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
-test_numeric_unitary_transformation()
+    system.set_basis(U_0)
+    L = system.L
+    #print("After transformation L_x = ", L[0]) # for comparison to the analytical result
+    assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
+    assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
+#test_numeric_unitary_transformation() # for comparison to the analytical result
+
 # ────────────────────────────────
 # Error Handling
 # ────────────────────────────────
