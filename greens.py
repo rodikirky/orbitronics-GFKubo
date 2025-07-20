@@ -15,7 +15,7 @@ class Greensfunctions:
     def get_kspace_green(self, momentum):
         """Compute the Green's function in k-space."""
         k = momentum
-        H = self.system.get_hamiltonian(momentum)
+        H = self.system.get_hamiltonian(k)
         identity = self.system.identity
         q = self.q # q is 1 for retarded, -1 for advanced
         omega = self.omega * identity # Ensure omega is a matrix for arithmatic operations
@@ -35,5 +35,6 @@ class Greensfunctions:
             assert np.linalg.det(tobe_inverted) != 0, "Hamiltonian must be invertible."
             GF_k = np.linalg.inv(tobe_inverted)
         return GF_k
-
+ # Next up: def get_roots, def get_rspace_green, and other methods as needed.
+ # Also, an Observable class to compute observables using the Green's function. In a separate file.
     
