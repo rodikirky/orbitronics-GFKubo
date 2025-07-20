@@ -23,12 +23,16 @@ class OrbitronicHamiltonianSystem:
     """
 
     def __init__(self,
-                 mass: Union[float, sp.Basic], # effective mass for the material
-                 orbital_texture_coupling: Union[float, sp.Basic], # kL coupling
-                 exchange_interaction_coupling: Union[float, sp.Basic], # zero for nonmagnets
+                 # effective mass for the material
+                 mass: Union[float, sp.Basic],
+                 # kL coupling
+                 orbital_texture_coupling: Union[float, sp.Basic],
+                 # zero for nonmagnets
+                 exchange_interaction_coupling: Union[float, sp.Basic],
                  magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
-                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None, # default leads to canonical L matrices
-                 symbolic: bool = False): # default symbolic=False for numeric mode
+                 # default leads to canonical L matrices
+                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
+                 symbolic: bool = False):  # default symbolic=False for numeric mode
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -105,7 +109,7 @@ class OrbitronicHamiltonianSystem:
             Ls = [Lx, Ly, Lz]
         else:
             U = self.basis
-            
+
             if self.symbolic:
                 ''' 
                 Convert symbolic matrix to numeric array for unitary check, before
@@ -114,18 +118,23 @@ class OrbitronicHamiltonianSystem:
                 and sympy algebra is often slow and error-prone for numerical checks. 
                 '''
                 # Convert symbolic matrix to numeric array
-                basis_numeric = np.array(self.basis.evalf()).astype(np.complex128)
+                basis_numeric = np.array(
+                    self.basis.evalf()).astype(np.complex128)
 
                 # Check unitary numerically
-                assert np.linalg.inv(basis_numeric) is not None, "Basis must be invertible."
-                assert np.allclose(basis_numeric.conj().T @ basis_numeric, np.eye(3), atol=1e-10), "Basis must be unitary (checked numerically)."
+                assert np.linalg.inv(
+                    basis_numeric) is not None, "Basis must be invertible."
+                assert np.allclose(basis_numeric.conj().T @ basis_numeric, np.eye(
+                    3), atol=1e-10), "Basis must be unitary (checked numerically)."
 
                 # Proceed with symbolic calculation using sympy.Matrix
-                U_dagger = U.H # Hermitian transpose, which is the adjoint in symbolic mode
+                U_dagger = U.H  # Hermitian transpose, which is the adjoint in symbolic mode
             else:
                 # Check if the basis is unitary
-                assert np.linalg.inv(U) is not None, "Basis must be invertible."
-                assert np.allclose(U.conj().T @ U, np.eye(3), atol=1e-10), "Basis must be unitary."
+                assert np.linalg.inv(
+                    U) is not None, "Basis must be invertible."
+                assert np.allclose(U.conj().T @ U, np.eye(3),
+                                   atol=1e-10), "Basis must be unitary."
                 U_dagger = np.linalg.inv(U)
             # Perform the basis transformation
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
@@ -133,7 +142,8 @@ class OrbitronicHamiltonianSystem:
         if self.symbolic:
             self.L = Ls  # plain list of all three operators
         else:
-            self.L = np.stack(Ls, axis=0)  # 3D array of all three operators.\: shape (3, 3, 3)
+            # 3D array of all three operators.\: shape (3, 3, 3)
+            self.L = np.stack(Ls, axis=0)
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
@@ -141,8 +151,10 @@ class OrbitronicHamiltonianSystem:
         k = self._sanitize_vector(momentum)
 
         if self.symbolic:
-            dot_kL = sum((k[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
-            dot_ML = sum((self.M[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
+            dot_kL = sum((k[i] * self.L[i]
+                         for i in range(3)), start=sp.zeros(3, 3))
+            dot_ML = sum((self.M[i] * self.L[i]
+                         for i in range(3)), start=sp.zeros(3, 3))
         else:
             dot_kL = np.tensordot(k, self.L, axes=1)
             dot_ML = np.tensordot(self.M, self.L, axes=1)
@@ -155,7 +167,7 @@ class OrbitronicHamiltonianSystem:
         """Return symbolic or numeric Hamiltonian."""
         k = self._sanitize_vector(momentum)
         kinetic = sum(k[i]**2 for i in range(3)) / (2 * self.mass)
-        kinetic = kinetic* self.identity
+        kinetic = kinetic * self.identity
         return kinetic + self.get_potential(momentum)
 
     def get_symbolic_hamiltonian(self) -> sp.Matrix:
