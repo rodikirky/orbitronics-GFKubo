@@ -139,7 +139,34 @@ def test_numeric_unitary_transformation():
     #print("After transformation L_x = ", L[0]) # for comparison to the analytical result
     assert isinstance(L, np.ndarray), "Expected angular momentum operators to be a numpy array in numeric mode."
     assert L.shape == (3, 3, 3), "Expected angular momentum operators shape (3, 3, 3)."
-#test_numeric_unitary_transformation() # for comparison to the analytical result
+#test_numeric_unitary_transformation() # Successful comparison to the analytical result
+
+def test_symbolic_unitary_transformation():
+    m, gamma, J, Mx = sp.symbols("m gamma J Mx")
+    system = OrbitronicHamiltonianSystem(
+        mass=m,
+        orbital_texture_coupling=gamma,
+        exchange_interaction_coupling=J,
+        magnetisation=[Mx, 0, 0],
+        symbolic=True
+    )
+    L = system.L
+    Lx = L[0]
+    Ly = L[1]
+    Lz = L[2]
+    print("Before transformation: Lx =", L[0]) # successful comparison to the analytical result
+    sqrt2 = sp.sqrt(2) # it is crucial to use sympy's sqrt here
+    U_0 = sp.Matrix([[-sp.I/sqrt2, 0, sp.I/sqrt2], [1/sqrt2, 0, 1/sqrt2], [0, sp.I, 0]])
+    #U_dagger = U_0.inv()
+    #print("Inverse U_0 = ", U_dagger) #correct adjoint matrix
+    system.set_basis(U_0)
+    L = system.L
+    print("After transformation L_x = ", L[0]) # successful comparison to the analytical result
+    assert isinstance(L, list), "Expected angular momentum operators to be a list in symbolic mode."
+    assert len(L) == 3, "Expected three angular momentum operators."
+    for op in L:
+        assert isinstance(op, sp.Matrix), "Expected each operator to be a sympy Matrix."
+#test_symbolic_unitary_transformation()
 
 # ────────────────────────────────
 # Error Handling
