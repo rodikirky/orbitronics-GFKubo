@@ -151,17 +151,17 @@ def test_symbolic_unitary_transformation():
         symbolic=True
     )
     L = system.L
-    Lx = L[0]
-    Ly = L[1]
-    Lz = L[2]
-    print("Before transformation: Lx =", L[0]) # successful comparison to the analytical result
+    #Lx = L[0]
+    #Ly = L[1]
+    #Lz = L[2]
+    #print("Before transformation: Lx =", L[0]) # successful comparison to the analytical result
     sqrt2 = sp.sqrt(2) # it is crucial to use sympy's sqrt here
     U_0 = sp.Matrix([[-sp.I/sqrt2, 0, sp.I/sqrt2], [1/sqrt2, 0, 1/sqrt2], [0, sp.I, 0]])
     #U_dagger = U_0.inv()
     #print("Inverse U_0 = ", U_dagger) #correct adjoint matrix
     system.set_basis(U_0)
     L = system.L
-    print("After transformation L_x = ", L[0]) # successful comparison to the analytical result
+    #print("After transformation L_x = ", L[0]) # successful comparison to the analytical result
     assert isinstance(L, list), "Expected angular momentum operators to be a list in symbolic mode."
     assert len(L) == 3, "Expected three angular momentum operators."
     for op in L:
