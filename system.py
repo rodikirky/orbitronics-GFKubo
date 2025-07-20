@@ -105,20 +105,35 @@ class OrbitronicHamiltonianSystem:
             Ls = [Lx, Ly, Lz]
         else:
             U = self.basis
+            
             if self.symbolic:
-                assert U.inv() is not None, "Basis must be invertible."
-                assert sp.simplify(U.inv()) == sp.simplify(U.adjoint()), "Basis must be unitary."
-                U_dagger = U.adjoint()
+                ''' 
+                Convert symbolic matrix to numeric array for unitary check, before
+                procedding with the basis transformation.
+                This is necessary because sympy.Matrix does not support direct numpy operations
+                and sympy algebra is often slow and error-prone for numerical checks. 
+                '''
+                # Convert symbolic matrix to numeric array
+                basis_numeric = np.array(self.basis.evalf()).astype(np.complex128)
+
+                # Check unitary numerically
+                assert np.linalg.inv(basis_numeric) is not None, "Basis must be invertible."
+                assert np.allclose(basis_numeric.conj().T @ basis_numeric, np.eye(3), atol=1e-10), "Basis must be unitary (checked numerically)."
+
+                # Proceed with symbolic calculation using sympy.Matrix
+                U_dagger = U.H # Hermitian transpose, which is the adjoint in symbolic mode
             else:
+                # Check if the basis is unitary
                 assert np.linalg.inv(U) is not None, "Basis must be invertible."
-                assert np.allclose(np.linalg.inv(U), U.T.conj()), "Basis must be unitary."
+                assert np.allclose(U.conj().T @ U, np.eye(3), atol=1e-10), "Basis must be unitary."
                 U_dagger = np.linalg.inv(U)
+            # Perform the basis transformation
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
 
         if self.symbolic:
-            self.L = Ls  # plain list
+            self.L = Ls  # plain list of all three operators
         else:
-            self.L = np.stack(Ls, axis=0)  # 3D array: shape (3, 3, 3)
+            self.L = np.stack(Ls, axis=0)  # 3D array of all three operators: shape (3, 3, 3)
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
