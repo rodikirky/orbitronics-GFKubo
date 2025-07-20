@@ -133,7 +133,7 @@ class OrbitronicHamiltonianSystem:
         if self.symbolic:
             self.L = Ls  # plain list of all three operators
         else:
-            self.L = np.stack(Ls, axis=0)  # 3D array of all three operators: shape (3, 3, 3)
+            self.L = np.stack(Ls, axis=0)  # 3D array of all three operators.\: shape (3, 3, 3)
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
