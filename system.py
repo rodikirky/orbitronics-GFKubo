@@ -1,7 +1,7 @@
 from typing import Union, List, Optional
 import numpy as np
 import sympy as sp
-
+from utils import is_unitary, sanitize_vector, get_identity
 
 class OrbitronicHamiltonianSystem:
     """
@@ -23,16 +23,12 @@ class OrbitronicHamiltonianSystem:
     """
 
     def __init__(self,
-                 # effective mass for the material
-                 mass: Union[float, sp.Basic],
-                 # kL coupling
-                 orbital_texture_coupling: Union[float, sp.Basic],
-                 # zero for nonmagnets
-                 exchange_interaction_coupling: Union[float, sp.Basic],
-                 magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
-                 # default leads to canonical L matrices
-                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
-                 symbolic: bool = False):  # default symbolic=False for numeric mode
+                 mass: Union[float, sp.Basic], # effective mass for the material
+                 orbital_texture_coupling: Union[float, sp.Basic],# kL coupling
+                 exchange_interaction_coupling: Union[float, sp.Basic], # zero for nonmagnets
+                 magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix], 
+                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None, # default leads to canonical L matrices
+                 symbolic: bool = False): # defaults to numeric mode
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -59,30 +55,20 @@ class OrbitronicHamiltonianSystem:
                             f"Hint: Set symbolic=True if you want to use symbols like '{val}'."
                         )
 
-        # Set symbolic mode
+        # Set symbolic/numeric mode
         self.symbolic = symbolic
         self.backend = sp if symbolic else np
 
         # Safe assignment of scalars
         self.mass = sp.sympify(mass) if symbolic else float(mass)
-        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(
-            orbital_texture_coupling)
-        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(
-            exchange_interaction_coupling)
+        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(orbital_texture_coupling)
+        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(exchange_interaction_coupling)
 
-        # Safe assignment of magnetisation
-        self.M = self._sanitize_vector(magnetisation)
+        self.M = sanitize_vector(magnetisation, symbolic)
 
-        self.identity = sp.eye(3) if symbolic else np.eye(3)
+        self.identity = get_identity(3, symbolic)
         self.make_matrix = sp.Matrix if symbolic else np.array
         self.set_basis(self.identity if basis is None else basis)
-
-    def _sanitize_vector(self, v: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, List[sp.Basic]]:
-        """Ensure vector is in the correct format for symbolic or numeric calculations."""
-        if self.symbolic:
-            return sp.Matrix(v)
-        else:
-            return np.array(v, dtype=float)
 
     def set_basis(self, basis: Union[np.ndarray, sp.Matrix]) -> None:
         """Set angular momentum operators in the given basis."""
@@ -102,59 +88,28 @@ class OrbitronicHamiltonianSystem:
             if np.iscomplex(self.basis).any():
                 is_identity = False
             else:
-                is_identity = np.allclose(
-                    np.array(self.basis).astype(np.float64), np.eye(3))
+                is_identity = np.allclose(np.array(self.basis).astype(np.float64), np.eye(3))
 
         if is_identity:
             Ls = [Lx, Ly, Lz]
         else:
             U = self.basis
 
-            if self.symbolic:
-                ''' 
-                Convert symbolic matrix to numeric array for unitary check, before
-                procedding with the basis transformation.
-                This is necessary because sympy.Matrix does not support direct numpy operations
-                and sympy algebra is often slow and error-prone for numerical checks. 
-                '''
-                # Convert symbolic matrix to numeric array
-                basis_numeric = np.array(
-                    self.basis.evalf()).astype(np.complex128)
+            assert is_unitary(U, symbolic=self.symbolic), "Basis must be unitary"
 
-                # Check unitary numerically
-                assert np.linalg.inv(
-                    basis_numeric) is not None, "Basis must be invertible."
-                assert np.allclose(basis_numeric.conj().T @ basis_numeric, np.eye(
-                    3), atol=1e-10), "Basis must be unitary (checked numerically)."
-
-                # Proceed with symbolic calculation using sympy.Matrix
-                U_dagger = U.H  # Hermitian transpose, which is the adjoint in symbolic mode
-            else:
-                # Check if the basis is unitary
-                assert np.linalg.inv(
-                    U) is not None, "Basis must be invertible."
-                assert np.allclose(U.conj().T @ U, np.eye(3),
-                                   atol=1e-10), "Basis must be unitary."
-                U_dagger = np.linalg.inv(U)
-            # Perform the basis transformation
+            U_dagger = U.H if self.symbolic else np.linalg.inv(U)
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
 
-        if self.symbolic:
-            self.L = Ls  # plain list of all three operators
-        else:
-            # 3D array of all three operators.\: shape (3, 3, 3)
-            self.L = np.stack(Ls, axis=0)
+        self.L = Ls if self.symbolic else np.stack(Ls, axis=0)
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
         b = self.backend
-        k = self._sanitize_vector(momentum)
+        k = sanitize_vector(momentum, symbolic=self.symbolic)
 
         if self.symbolic:
-            dot_kL = sum((k[i] * self.L[i]
-                         for i in range(3)), start=sp.zeros(3, 3))
-            dot_ML = sum((self.M[i] * self.L[i]
-                         for i in range(3)), start=sp.zeros(3, 3))
+            dot_kL = sum((k[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
+            dot_ML = sum((self.M[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
         else:
             dot_kL = np.tensordot(k, self.L, axes=1)
             dot_ML = np.tensordot(self.M, self.L, axes=1)
@@ -164,8 +119,7 @@ class OrbitronicHamiltonianSystem:
         return orbital_term + exchange_term
 
     def get_hamiltonian(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
-        """Return symbolic or numeric Hamiltonian."""
-        k = self._sanitize_vector(momentum)
+        k = sanitize_vector(momentum, symbolic=self.symbolic)
         kinetic = sum(k[i]**2 for i in range(3)) / (2 * self.mass)
         kinetic = kinetic * self.identity
         return kinetic + self.get_potential(momentum)
@@ -173,8 +127,7 @@ class OrbitronicHamiltonianSystem:
     def get_symbolic_hamiltonian(self) -> sp.Matrix:
         """Convenience method to return Hamiltonian with default symbols."""
         if not self.symbolic:
-            raise ValueError(
-                "Hamiltonian is not symbolic. Set symbolic=True at init.")
+            raise ValueError("Hamiltonian is not symbolic. Set symbolic=True at init.")
         kx, ky, kz = sp.symbols("k_x k_y k_z", real=True)
         momentum = [kx, ky, kz]
         return self.get_hamiltonian(momentum)
