@@ -1,27 +1,31 @@
 import numpy as np
 import sympy as sp
 
-class Greensfunctions:
+class GreensFunctionCalculator:
     def __init__(self,
-                 system,
+                 hamiltonian,
+                 identity,
+                 symbolic,
                  energy_level,
                  infinitestimal,
                  retarded = True):
-        self.system = system
+        self.H = hamiltonian
+        self.I = identity
+        self.symbolic = symbolic
         self.omega = energy_level
         self.eta = infinitestimal
         self.q = 1 if retarded else -1 # q= 1 for retarded, -1 for advanced
 
-    def get_kspace_green(self, momentum):
+    def compute_kspace_greens_function(self, momentum):
         """Compute the Green's function in k-space."""
         k = momentum
-        H = self.system.get_hamiltonian(k)
-        identity = self.system.identity
+        H = self.H(k)
+        identity = self.I
         q = self.q # q is 1 for retarded, -1 for advanced
         omega = self.omega * identity # Ensure omega is a matrix for arithmatic operations
-        imaginary_part = sp.I * self.eta * identity if self.system.symbolic else 1j * self.eta * identity
+        imaginary_part = sp.I * self.eta * identity if self.symbolic else 1j * self.eta * identity
 
-        if self.system.symbolic:
+        if self.symbolic:
             # For symbolic systems, we use sympy's Matrix
             H = H.as_explicit()
             tobe_inverted = omega + q* imaginary_part - H
@@ -35,6 +39,6 @@ class Greensfunctions:
             assert np.linalg.det(tobe_inverted) != 0, "Hamiltonian must be invertible."
             GF_k = np.linalg.inv(tobe_inverted)
         return GF_k
- # Next up: def get_roots, def get_rspace_green, get_halfspace_green and other methods as needed.
+ # Next up: def get_roots, def compute_rspace_greens_function, get_halfspace_green and other methods as needed.
  # Also, an Observable class to compute observables using the Green's function. In a separate file.
     
