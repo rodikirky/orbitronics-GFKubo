@@ -2,6 +2,9 @@ import numpy as np
 import sympy as sp
 import pytest
 
+# THIS IS JUST A BLUE PRINT PLACEHOLDER FILE FROM CHATGPT
+# DETAILS MUST BE CHECKED AND ADJUSTED TO CURRENT NEEDS
+
 from utils import (
     invert_matrix,
     is_unitary,
