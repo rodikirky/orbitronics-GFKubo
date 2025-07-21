@@ -2,6 +2,7 @@ import numpy as np
 import sympy as sp
 from typing import Union
 
+
 def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
                   symbolic: bool) -> Union[np.ndarray, sp.Matrix]:
     """
@@ -26,7 +27,8 @@ def is_unitary(U: Union[np.ndarray, sp.Matrix],
     This needs to be verified for basis change operations.
     It operates in numeric mode. Hence, the matrix is first converted into a np.ndarray.
     """
-    U_eval = np.array(U.evalf()).astype(np.complex128) if symbolic else np.array(U)
+    U_eval = np.array(U.evalf()).astype(
+        np.complex128) if symbolic else np.array(U)
     return np.allclose(U_eval.conj().T @ U_eval, np.eye(U_eval.shape[0]), atol=atol)
 
 

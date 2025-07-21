@@ -3,6 +3,7 @@ import numpy as np
 import sympy as sp
 from utils import is_unitary, sanitize_vector, get_identity
 
+
 class OrbitronicHamiltonianSystem:
     """
     OrbitronicHamiltonianSystem represents an orbitronic quantum system 
@@ -23,12 +24,16 @@ class OrbitronicHamiltonianSystem:
     """
 
     def __init__(self,
-                 mass: Union[float, sp.Basic], # effective mass for the material
-                 orbital_texture_coupling: Union[float, sp.Basic],# kL coupling
-                 exchange_interaction_coupling: Union[float, sp.Basic], # zero for nonmagnets
-                 magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix], 
-                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None, # default leads to canonical L matrices
-                 symbolic: bool = False): # defaults to numeric mode
+                 # effective mass for the material
+                 mass: Union[float, sp.Basic],
+                 # kL coupling
+                 orbital_texture_coupling: Union[float, sp.Basic],
+                 # zero for nonmagnets
+                 exchange_interaction_coupling: Union[float, sp.Basic],
+                 magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
+                 # default leads to canonical L matrices
+                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
+                 symbolic: bool = False):  # defaults to numeric mode
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -61,8 +66,10 @@ class OrbitronicHamiltonianSystem:
 
         # Safe assignment of scalars
         self.mass = sp.sympify(mass) if symbolic else float(mass)
-        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(orbital_texture_coupling)
-        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(exchange_interaction_coupling)
+        self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(
+            orbital_texture_coupling)
+        self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(
+            exchange_interaction_coupling)
 
         self.M = sanitize_vector(magnetisation, symbolic)
 
@@ -88,14 +95,16 @@ class OrbitronicHamiltonianSystem:
             if np.iscomplex(self.basis).any():
                 is_identity = False
             else:
-                is_identity = np.allclose(np.array(self.basis).astype(np.float64), np.eye(3))
+                is_identity = np.allclose(
+                    np.array(self.basis).astype(np.float64), np.eye(3))
 
         if is_identity:
             Ls = [Lx, Ly, Lz]
         else:
             U = self.basis
 
-            assert is_unitary(U, symbolic=self.symbolic), "Basis must be unitary"
+            assert is_unitary(
+                U, symbolic=self.symbolic), "Basis must be unitary"
 
             U_dagger = U.H if self.symbolic else np.linalg.inv(U)
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
@@ -108,8 +117,10 @@ class OrbitronicHamiltonianSystem:
         k = sanitize_vector(momentum, symbolic=self.symbolic)
 
         if self.symbolic:
-            dot_kL = sum((k[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
-            dot_ML = sum((self.M[i] * self.L[i] for i in range(3)), start=sp.zeros(3, 3))
+            dot_kL = sum((k[i] * self.L[i]
+                         for i in range(3)), start=sp.zeros(3, 3))
+            dot_ML = sum((self.M[i] * self.L[i]
+                         for i in range(3)), start=sp.zeros(3, 3))
         else:
             dot_kL = np.tensordot(k, self.L, axes=1)
             dot_ML = np.tensordot(self.M, self.L, axes=1)
@@ -127,7 +138,8 @@ class OrbitronicHamiltonianSystem:
     def get_symbolic_hamiltonian(self) -> sp.Matrix:
         """Convenience method to return Hamiltonian with default symbols."""
         if not self.symbolic:
-            raise ValueError("Hamiltonian is not symbolic. Set symbolic=True at init.")
+            raise ValueError(
+                "Hamiltonian is not symbolic. Set symbolic=True at init.")
         kx, ky, kz = sp.symbols("k_x k_y k_z", real=True)
         momentum = [kx, ky, kz]
         return self.get_hamiltonian(momentum)

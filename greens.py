@@ -3,6 +3,7 @@ import sympy as sp
 from typing import Callable, Union
 from utils import invert_matrix
 
+
 class GreensFunctionCalculator:
     def __init__(self,
                  hamiltonian: Callable[[Union[np.ndarray, sp.Matrix]], Union[np.ndarray, sp.Matrix]],
@@ -39,14 +40,16 @@ class GreensFunctionCalculator:
         Returns:
         - Green's function matrix at momentum k
         """
-        H_k = self.H(momentum) # hamiltonian in k-space
-        omega_I = self.omega * self.I # allows for matric arithmetic with a scalar
-        i_eta = (sp.I if self.symbolic else 1j) * self.eta * self.I # imaginary part
-        q = self.q # retarded (q = 1) or advanced (q = -1)
+        H_k = self.H(momentum)  # hamiltonian in k-space
+        omega_I = self.omega * self.I  # allows for matric arithmetic with a scalar
+        i_eta = (sp.I if self.symbolic else 1j) * \
+            self.eta * self.I  # imaginary part
+        q = self.q  # retarded (q = 1) or advanced (q = -1)
         tobe_inverted = omega_I + q * i_eta - H_k
 
         if self.symbolic:
-            tobe_inverted = sp.Matrix(tobe_inverted.as_explicit())  # Ensure full matrix for symbolic inversion
+            # Ensure full matrix for symbolic inversion
+            tobe_inverted = sp.Matrix(tobe_inverted.as_explicit())
         else:
             tobe_inverted = np.array(tobe_inverted)
 
