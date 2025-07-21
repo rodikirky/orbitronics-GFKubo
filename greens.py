@@ -6,7 +6,7 @@ from utils import invert_matrix
 
 class GreensFunctionCalculator:
     def __init__(self,
-                 hamiltonian: Callable[[Union[np.ndarray, sp.Matrix]], Union[np.ndarray, sp.Matrix]],
+                 hamiltonian: Callable[[Union[list, np.ndarray, sp.Matrix]], Union[np.ndarray, sp.Matrix]],
                  identity: Union[np.ndarray, sp.Matrix],
                  symbolic: bool,
                  energy_level: Union[float, sp.Basic],
