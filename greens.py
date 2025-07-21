@@ -35,6 +35,6 @@ class Greensfunctions:
             assert np.linalg.det(tobe_inverted) != 0, "Hamiltonian must be invertible."
             GF_k = np.linalg.inv(tobe_inverted)
         return GF_k
- # Next up: def get_roots, def get_rspace_green, and other methods as needed.
+ # Next up: def get_roots, def get_rspace_green, get_halfspace_green and other methods as needed.
  # Also, an Observable class to compute observables using the Green's function. In a separate file.
     
