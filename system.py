@@ -1,7 +1,7 @@
 from typing import Union, List, Optional
 import numpy as np
 import sympy as sp
-from utils import is_unitary, sanitize_vector, get_identity
+from utils import is_unitary, sanitize_vector, get_identity, print_symbolic_matrix
 
 
 class OrbitronicHamiltonianSystem:
@@ -21,6 +21,7 @@ class OrbitronicHamiltonianSystem:
     - magnetisation: 3D vector representing magnetic moment
     - basis: Optional 3×3 matrix defining basis transformation
     - symbolic: Whether to use symbolic backend (SymPy) or numeric (NumPy)
+    - verbose: If True, prints internal calculations for debugging
     """
 
     def __init__(self,
@@ -28,12 +29,16 @@ class OrbitronicHamiltonianSystem:
                  mass: Union[float, sp.Basic],
                  # kL coupling
                  orbital_texture_coupling: Union[float, sp.Basic],
-                 # zero for nonmagnets
+                 # exchange coupling is zero for nonmagnets
                  exchange_interaction_coupling: Union[float, sp.Basic],
                  magnetisation: Union[List[Union[float, sp.Basic]], np.ndarray, sp.Matrix],
                  # default leads to canonical L matrices
                  basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
-                 symbolic: bool = False):  # defaults to numeric mode
+                 # defaults to numeric mode
+                 symbolic: bool = False,
+                 # defaults to non-verbose
+                 # if verbose=True, intermediate steps will be printed out
+                 verbose: bool = False):
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
@@ -64,7 +69,9 @@ class OrbitronicHamiltonianSystem:
         self.symbolic = symbolic
         self.backend = sp if symbolic else np
 
-        # Safe assignment of scalars
+        # for easy debugging along the way
+        self.verbose = verbose
+
         self.mass = sp.sympify(mass) if symbolic else float(mass)
         self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(
             orbital_texture_coupling)
@@ -109,6 +116,12 @@ class OrbitronicHamiltonianSystem:
             U_dagger = U.H if self.symbolic else np.linalg.inv(U)
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
 
+            if self.verbose:
+                print("\nBasis transformation applied. Transformed angular momentum operators:")
+                for i, L in enumerate(Ls):
+                    name = f"L{['x','y','z'][i]}"
+                    print_symbolic_matrix(L, name=name) if self.symbolic else print(f"{name} =\n", L)
+
         self.L = Ls if self.symbolic else np.stack(Ls, axis=0)
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
@@ -127,13 +140,26 @@ class OrbitronicHamiltonianSystem:
 
         orbital_term = self.gamma * (dot_kL @ dot_kL)
         exchange_term = self.J * dot_ML
-        return orbital_term + exchange_term
+        potential = orbital_term + exchange_term
+
+        if self.verbose:
+            print("\nComputed potential energy matrix:")
+            print_symbolic_matrix(potential, name="V(k)") if self.symbolic else print(potential)
+
+        return potential
 
     def get_hamiltonian(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         k = sanitize_vector(momentum, symbolic=self.symbolic)
         kinetic = sum(k[i]**2 for i in range(3)) / (2 * self.mass)
         kinetic = kinetic * self.identity
-        return kinetic + self.get_potential(momentum)
+        potential = self.get_potential(momentum)
+        H = kinetic + potential
+
+        if self.verbose:
+            print("\nComputed total Hamiltonian:")
+            print_symbolic_matrix(H, name="H(k)") if self.symbolic else print(H)
+
+        return H
 
     def get_symbolic_hamiltonian(self) -> sp.Matrix:
         """Convenience method to return Hamiltonian with default symbols."""
