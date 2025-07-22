@@ -5,25 +5,6 @@ from utils import is_unitary, sanitize_vector, get_identity, print_symbolic_matr
 
 
 class OrbitronicHamiltonianSystem:
-    """
-    OrbitronicHamiltonianSystem represents an orbitronic quantum system 
-    in either a symbolic or numeric mode.
-
-    Supports computation of angular momentum-coupled potentials and Hamiltonians
-    in a specified basis. Accepts both symbolic expressions (via SymPy) and 
-    numerical arrays (via NumPy), making it suitable for both analytical modeling 
-    and simulation.
-
-    Parameters:
-    - mass: Scalar mass (numeric or symbolic)
-    - orbital_texture_coupling: Coupling strength γ
-    - exchange_interaction_coupling: Coupling strength J
-    - magnetisation: 3D vector representing magnetic moment
-    - basis: Optional 3×3 matrix defining basis transformation
-    - symbolic: Whether to use symbolic backend (SymPy) or numeric (NumPy)
-    - verbose: If True, prints internal calculations for debugging
-    """
-
     def __init__(self,
                  # effective mass for the material
                  mass: Union[float, sp.Basic],
@@ -39,6 +20,24 @@ class OrbitronicHamiltonianSystem:
                  # defaults to non-verbose
                  # if verbose=True, intermediate steps will be printed out
                  verbose: bool = False):
+        """
+        OrbitronicHamiltonianSystem represents an orbitronic quantum system 
+        in either a symbolic or numeric mode.
+
+        Supports computation of angular momentum-coupled potentials and Hamiltonians
+        in a specified basis. Accepts both symbolic expressions (via SymPy) and 
+        numerical arrays (via NumPy), making it suitable for both analytical modeling 
+        and simulation.
+
+        Parameters:
+        - mass: Scalar mass (numeric or symbolic)
+        - orbital_texture_coupling: Coupling strength γ
+        - exchange_interaction_coupling: Coupling strength J
+        - magnetisation: 3D vector representing magnetic moment
+        - basis: Optional 3×3 matrix defining basis transformation
+        - symbolic: Whether to use symbolic backend (SymPy) or numeric (NumPy)
+        - verbose: If True, prints internal calculations for debugging
+        """
 
         def _is_symbolic(val):
             return isinstance(val, sp.Basic)
