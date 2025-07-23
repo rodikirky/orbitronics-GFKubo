@@ -2,6 +2,7 @@ from greens import GreensFunctionCalculator
 import numpy as np
 import sympy as sp
 from system import OrbitronicHamiltonianSystem
+from utils import invert_matrix
 
 # ────────────────────────────────
 # Basic Instantiation
@@ -112,3 +113,43 @@ def test_numeric_greens_function_shape():
     G = greens_calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))  # zero momentum
     assert isinstance(G, np.ndarray), "Expected a NumPy ndarray in numeric mode"
     assert G.shape == (3, 3), "Green's function should be 3x3 in this model"
+
+def test_symbolic_identity_hamiltonian():
+    """
+    For known input-output pair comparison, we use the identity function as a Hamiltonian.
+    """
+    def identity_hamiltonian(k):
+        return sp.eye(3)
+    omega, eta = sp.symbols("omega eta")
+    calculator = GreensFunctionCalculator(
+        hamiltonian=identity_hamiltonian,
+        identity=sp.eye(3),
+        symbolic=True,
+        energy_level=omega,
+        infinitestimal=eta,
+        retarded=True
+    )
+    G = calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
+    # Expected result is known
+    expected = invert_matrix((omega + sp.I * eta) * sp.eye(3) - sp.eye(3), symbolic=True)
+    assert G==expected
+
+def test_numeric_identity_hamiltonian():
+    """
+    For known input-output pair comparison, we use the identity function as a Hamiltonian.
+    """
+    def identity_hamiltonian(k):
+        return np.eye(3)
+    omega, eta = 2.0, 0.1
+    calculator = GreensFunctionCalculator(
+        hamiltonian=identity_hamiltonian,
+        identity=np.eye(3),
+        symbolic=False,
+        energy_level=omega,
+        infinitestimal=eta,
+        retarded=True
+    )
+    G = calculator.compute_kspace_greens_function(np.array([0, 0, 0]))
+    # Expected result is known:
+    expected = np.linalg.inv((omega + 1j * eta) * np.eye(3) - np.eye(3))
+    np.testing.assert_allclose(G, expected)
