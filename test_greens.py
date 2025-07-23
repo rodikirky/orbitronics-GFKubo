@@ -34,6 +34,34 @@ def test_create_symbolic_greens_function():
     assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
     assert greens_calculator.verbose is False, "verbose should default to False"
 
+def test_create_numeric_greens_function():
+    # Use concrete numeric values for parameters
+    m, gamma, J, Mx = 1.0, 2.0, 0.5, 0.8
+    omega, eta = 1.2, 0.01
+
+    system = OrbitronicHamiltonianSystem(
+        mass=m,
+        orbital_texture_coupling=gamma,
+        exchange_interaction_coupling=J,
+        magnetisation=[Mx, 0, 0]
+    )
+    greens_calculator = GreensFunctionCalculator(
+        hamiltonian=system.get_hamiltonian,
+        identity=system.identity,
+        symbolic=system.symbolic,
+        energy_level=omega,
+        infinitestimal=eta,
+        retarded=True
+    )
+    # Basic assertions to confirm setup
+    assert callable(greens_calculator.H), "Hamiltonian should be callable"
+    assert isinstance(greens_calculator.I, np.ndarray), "Identity should be a sympy Matrix in symbolic mode"
+    assert greens_calculator.symbolic is False, "The system should default to numeric mode with symbolic=False"
+    assert greens_calculator.omega == 1.2, "omega should remain unchanged after initiation"
+    assert greens_calculator.eta == 0.01, "eta should remain unchanged after initiation"
+    assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
+    assert greens_calculator.verbose is False, "verbose should default to False"
+
 
 # ────────────────────────────────
 # GF construction in k-space 
