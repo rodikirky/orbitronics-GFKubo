@@ -59,9 +59,10 @@ class GreensFunctionCalculator:
         tobe_inverted = omega_I + q * i_eta - H_k
 
         if self.symbolic:
-            # Ensure full matrix for symbolic inversion
-            tobe_inverted = sp.Matrix(tobe_inverted.as_explicit())
+            # Ensure symbolic matrix for symbolic inversion
+            tobe_inverted = sp.Matrix(tobe_inverted)
         else:
+            # Ensure numeric matrix for numeric inversion
             tobe_inverted = np.array(tobe_inverted)
 
         if self.verbose:
