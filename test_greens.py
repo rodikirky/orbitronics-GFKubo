@@ -36,20 +36,23 @@ def test_create_symbolic_greens_function():
     assert greens_calculator.verbose is False, "verbose should default to False"
 
 def test_symbolic_greens_function_shape():
-    omega, eta = sp.symbols("omega eta")
+    m, gamma, J, Mx, omega, eta = sp.symbols("m gamma J Mx omega eta")
+
     system = OrbitronicHamiltonianSystem(
-        mass=1.0, orbital_texture_coupling=1.0,
-        exchange_interaction_coupling=1.0, magnetisation=[1, 0, 0],
+        mass=m,
+        orbital_texture_coupling=gamma,
+        exchange_interaction_coupling=J,
+        magnetisation=[Mx, 0, 0],
         symbolic=True
     )
     greens_calculator = GreensFunctionCalculator(
         hamiltonian=system.get_hamiltonian,
         identity=system.identity,
-        symbolic=True,
+        symbolic=system.symbolic,
         energy_level=omega,
         infinitestimal=eta,
         retarded=True
     )
-    G = greens_calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
+    G = greens_calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0])) # zero momentum test run
     assert isinstance(G, sp.Matrix)
     assert G.shape == (3, 3)
