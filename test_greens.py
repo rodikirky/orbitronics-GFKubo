@@ -55,7 +55,7 @@ def test_create_numeric_greens_function():
     )
     # Basic assertions to confirm setup
     assert callable(greens_calculator.H), "Hamiltonian should be callable"
-    assert isinstance(greens_calculator.I, np.ndarray), "Identity should be a sympy Matrix in symbolic mode"
+    assert isinstance(greens_calculator.I, np.ndarray), "Identity should be a numpy array in numeric mode"
     assert greens_calculator.symbolic is False, "The system should default to numeric mode with symbolic=False"
     assert greens_calculator.omega == 1.2, "omega should remain unchanged after initiation"
     assert greens_calculator.eta == 0.01, "eta should remain unchanged after initiation"
