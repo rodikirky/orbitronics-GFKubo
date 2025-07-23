@@ -21,7 +21,7 @@ class OrbitronicHamiltonianSystem:
                  # if verbose=True, intermediate steps will be printed out
                  verbose: bool = False):
         """
-        OrbitronicHamiltonianSystem represents an orbitronic quantum system 
+        OrbitronicHamiltonianSystem represents an orbitronic single-particle quantum system 
         in either a symbolic or numeric mode.
 
         Supports computation of angular momentum-coupled potentials and Hamiltonians
