@@ -86,8 +86,8 @@ def test_symbolic_greens_function_shape():
         retarded=True
     )
     G = greens_calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0])) # zero momentum test run
-    assert isinstance(G, sp.Matrix)
-    assert G.shape == (3, 3)
+    assert isinstance(G, sp.Matrix), "The Greens function should be a sympy matrix in symbolic mode"
+    assert G.shape == (3, 3), "Expected shape (3,3) for G"
 
 def test_numeric_greens_function_shape():
     # Use concrete numeric values for parameters
