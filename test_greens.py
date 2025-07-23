@@ -9,7 +9,8 @@ from system import OrbitronicHamiltonianSystem
 
 
 def test_create_symbolic_greens_function():
-    m, gamma, J, Mx = sp.symbols("m gamma J Mx")
+    m, gamma, J, Mx, omega, eta = sp.symbols("m gamma J Mx omega eta")
+
     system = OrbitronicHamiltonianSystem(
         mass=m,
         orbital_texture_coupling=gamma,
@@ -17,11 +18,38 @@ def test_create_symbolic_greens_function():
         magnetisation=[Mx, 0, 0],
         symbolic=True
     )
-    greens_setup = GreensFunctionCalculator(
+    greens_calculator = GreensFunctionCalculator(
         hamiltonian=system.get_hamiltonian,
         identity=system.identity,
         symbolic=system.symbolic,
-        energy_level=sp.symbols("omega"),
-        infinitestimal=sp.symbols("eta"),
+        energy_level=omega,
+        infinitestimal=eta,
         retarded=True
     )
+    # Basic assertions to confirm setup
+    assert callable(greens_calculator.H), "Hamiltonian should be callable"
+    assert isinstance(greens_calculator.I, sp.Matrix), "Identity should be a sympy Matrix in symbolic mode"
+    assert greens_calculator.symbolic is True, "In symbolic mode, it should be symbolic is True"
+    assert greens_calculator.omega == omega, "omega should remain unchanged after initiation"
+    assert greens_calculator.eta == eta, "eta should remain unchanged after initiation"
+    assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
+    assert greens_calculator.verbose is False, "verbose should default to False"
+
+def test_symbolic_greens_function_shape():
+    omega, eta = sp.symbols("omega eta")
+    system = OrbitronicHamiltonianSystem(
+        mass=1.0, orbital_texture_coupling=1.0,
+        exchange_interaction_coupling=1.0, magnetisation=[1, 0, 0],
+        symbolic=True
+    )
+    greens_calculator = GreensFunctionCalculator(
+        hamiltonian=system.get_hamiltonian,
+        identity=system.identity,
+        symbolic=True,
+        energy_level=omega,
+        infinitestimal=eta,
+        retarded=True
+    )
+    G = greens_calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
+    assert isinstance(G, sp.Matrix)
+    assert G.shape == (3, 3)
