@@ -200,7 +200,7 @@ def test_symbolic_retarded_vs_advanced():
 # ────────────────────────────────
 
 
-def test_noninvertible_matrix_raises():
+def test_numeric_noninvertible_matrix_raises():
     def singular_hamiltonian(k):
         return np.eye(3)  # ωI - 0 = ωI → always invertible, so instead:
         # Return identity to cancel ω*I, i.e., ωI - I = 0 for ω=1
@@ -220,3 +220,25 @@ def test_noninvertible_matrix_raises():
 
     with pytest.raises(ValueError, match="not invertible"):
         calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
+
+def test_symbolic_noninvertible_matrix_raises():
+    omega, eta = sp.symbols("omega eta", real=True)
+
+    # We want: (omega + i*eta)I - H(k) == zero matrix
+    # So set H(k) = (omega + i*eta)*I
+    def matched_hamiltonian(k):
+        return (omega + sp.I * eta) * sp.eye(2)
+
+    identity = sp.eye(2)
+
+    calculator = GreensFunctionCalculator(
+        hamiltonian=matched_hamiltonian,
+        identity=identity,
+        symbolic=True,
+        energy_level=omega,
+        infinitestimal=eta,
+        retarded=True
+    )
+
+    with pytest.raises(ValueError, match="not invertible"):
+        calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
