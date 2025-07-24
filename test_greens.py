@@ -174,7 +174,7 @@ def test_numeric_retarded_vs_advanced():
     # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
     np.testing.assert_allclose(G_adv, G_ret_dagger, rtol=1e-10, err_msg="Advanced should be Hermitian conjugate of Retarded")
 
-def test_numeric_retarded_vs_advanced():
+def test_symbolic_retarded_vs_advanced():
     omega, eta = 2.0, 0.01
 
     def simple_H(k): 
