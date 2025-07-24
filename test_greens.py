@@ -3,6 +3,7 @@ import numpy as np
 import sympy as sp
 from system import OrbitronicHamiltonianSystem
 from utils import invert_matrix, hermitian_conjugate
+import pytest
 
 # ────────────────────────────────
 # Basic Instantiation
@@ -193,3 +194,29 @@ def test_symbolic_retarded_vs_advanced():
 
     # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
     assert G_adv == G_ret_dagger, "Advanced should be Hermitian conjugate of Retarded"
+
+# ────────────────────────────────
+# Error Handling
+# ────────────────────────────────
+
+
+def test_noninvertible_matrix_raises():
+    def singular_hamiltonian(k):
+        return np.eye(3)  # ωI - 0 = ωI → always invertible, so instead:
+        # Return identity to cancel ω*I, i.e., ωI - I = 0 for ω=1
+
+    omega = 1.0
+    eta = 0.0
+    identity = np.eye(3)
+
+    calculator = GreensFunctionCalculator(
+        hamiltonian=singular_hamiltonian,
+        identity=identity,
+        symbolic=False,
+        energy_level=omega,
+        infinitestimal=eta,
+        retarded=True
+    )
+
+    with pytest.raises(ValueError, match="not invertible"):
+        calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
