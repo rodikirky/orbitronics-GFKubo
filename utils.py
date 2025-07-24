@@ -6,7 +6,15 @@ from typing import Union
 def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
                   symbolic: bool) -> Union[np.ndarray, sp.Matrix]:
     """
-    Helper function that inverts matrices in both numeric and symbolic mode.
+    Compute the inverse of a matrix.
+
+    Parameters:
+    - matrix: numpy.ndarray or sympy.Matrix
+    - symbolic: True for SymPy backend, False for NumPy
+
+    Returns:
+    - Inverse of matrix
+    
     This function raises an error message, if the matrix is not invertible.
     """
     if symbolic:
@@ -22,9 +30,14 @@ def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
 def hermitian_conjugate(matrix: Union[np.ndarray, sp.Matrix],
                         symbolic: bool) -> Union[np.ndarray, sp.Matrix]:
     """
-    Helper function that compute the Hermitian conjugate of a matrix,
-    i.e. it transposes and complex conjugates the matrix. 
-    It works in both numeric and symbolic mode, hence the additional boolean argument.
+    Compute the Hermitian conjugate (dagger) of a matrix.
+
+    Parameters:
+    - matrix: numpy.ndarray or sympy.Matrix
+    - symbolic: True for SymPy backend, False for NumPy
+
+    Returns:
+    - Hermitian conjugate of matrix
     """
     if symbolic:
         return matrix.H
