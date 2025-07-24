@@ -165,8 +165,31 @@ def test_numeric_retarded_vs_advanced():
     retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True)
     advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False)
 
-    G_ret = retarded_calc.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
-    G_adv = advanced_calc.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
+    momentum = np.array([0.0, 0.0, 0.0])
+    G_ret = retarded_calc.compute_kspace_greens_function(momentum)
+    G_adv = advanced_calc.compute_kspace_greens_function(momentum)
+
+    G_ret_dagger = hermitian_conjugate(G_ret, symbolic=False)
 
     # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
-    np.testing.assert_allclose(G_adv, G_ret.conj().T, rtol=1e-10, err_msg="Advanced should be Hermitian conjugate of Retarded")
+    np.testing.assert_allclose(G_adv, G_ret_dagger, rtol=1e-10, err_msg="Advanced should be Hermitian conjugate of Retarded")
+
+def test_numeric_retarded_vs_advanced():
+    omega, eta = 2.0, 0.01
+
+    def simple_H(k): 
+        return sp.eye(2)
+    
+    I = sp.eye(2)
+
+    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=True)
+    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=False)
+
+    momentum = np.array([0.0, 0.0, 0.0])
+    G_ret = retarded_calc.compute_kspace_greens_function(momentum)
+    G_adv = advanced_calc.compute_kspace_greens_function(momentum)
+
+    G_ret_dagger = hermitian_conjugate(G_ret, symbolic=True)
+
+    # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
+    assert G_adv == G_ret_dagger, "Advanced should be Hermitian conjugate of Retarded"
