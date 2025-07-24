@@ -2,7 +2,7 @@ from greens import GreensFunctionCalculator
 import numpy as np
 import sympy as sp
 from system import OrbitronicHamiltonianSystem
-from utils import invert_matrix
+from utils import invert_matrix, hermitian_conjugate
 
 # ────────────────────────────────
 # Basic Instantiation
@@ -153,3 +153,20 @@ def test_numeric_identity_hamiltonian():
     # Expected result is known:
     expected = np.linalg.inv((omega + 1j * eta) * np.eye(3) - np.eye(3))
     np.testing.assert_allclose(G, expected)
+
+def test_numeric_retarded_vs_advanced():
+    omega, eta = 2.0, 0.01
+
+    def simple_H(k): 
+        return np.eye(2)
+    
+    I = np.eye(2)
+
+    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True)
+    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False)
+
+    G_ret = retarded_calc.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
+    G_adv = advanced_calc.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
+
+    # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
+    np.testing.assert_allclose(G_adv, G_ret.conj().T, rtol=1e-10, err_msg="Advanced should be Hermitian conjugate of Retarded")
