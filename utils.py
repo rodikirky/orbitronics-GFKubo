@@ -19,6 +19,19 @@ def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
         return np.linalg.inv(matrix)
 
 
+def hermitian_conjugate(matrix: Union[np.ndarray, sp.Matrix],
+                        symbolic: bool) -> Union[np.ndarray, sp.Matrix]:
+    """
+    Helper function that compute the Hermitian conjugate of a matrix,
+    i.e. it transposes and complex conjugates the matrix. 
+    It works in both numeric and symbolic mode, hence the additional boolean argument.
+    """
+    if symbolic:
+        return matrix.H
+    else:
+        return matrix.conj().T
+
+
 def is_unitary(U: Union[np.ndarray, sp.Matrix],
                symbolic: bool = False,
                atol: float = 1e-10) -> bool:
