@@ -166,7 +166,7 @@ def test_numeric_retarded_vs_advanced():
     retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True)
     advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False)
 
-    momentum = np.array([0.0, 0.0, 0.0])
+    momentum = np.array([0.0, 0.0])
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
     G_adv = advanced_calc.compute_kspace_greens_function(momentum)
 
@@ -186,7 +186,7 @@ def test_symbolic_retarded_vs_advanced():
     retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=True)
     advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=False)
 
-    momentum = np.array([0.0, 0.0, 0.0])
+    momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
     G_adv = advanced_calc.compute_kspace_greens_function(momentum)
 
@@ -196,9 +196,49 @@ def test_symbolic_retarded_vs_advanced():
     assert G_adv == G_ret_dagger, "Advanced should be Hermitian conjugate of Retarded"
 
 # ────────────────────────────────
-# Error Handling
+# Verbose output
 # ────────────────────────────────
 
+def test_numeric_verbose_output(capsys):
+    def dummy_H(k): return np.eye(2)
+
+    calculator = GreensFunctionCalculator(
+        hamiltonian=dummy_H,
+        identity=np.eye(2),
+        symbolic=False,
+        energy_level=1.0,
+        infinitestimal=0.1,
+        verbose=True
+    )
+    
+    momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
+    calculator.compute_kspace_greens_function(momentum)
+
+    captured = capsys.readouterr()
+    assert "Inversion target" in captured.out
+
+def test_sybolic_verbose_output(capsys):
+    def dummy_H(k): return sp.eye(2)
+    omega, eta = sp.symbols("omega eta", real=True)
+
+    calculator = GreensFunctionCalculator(
+        hamiltonian=dummy_H,
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=omega,
+        infinitestimal=eta,
+        verbose=True
+    )
+    
+    momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
+    calculator.compute_kspace_greens_function(momentum)
+
+    captured = capsys.readouterr()
+    assert "( ω ± iη - H(k) )" in captured.out
+
+# ────────────────────────────────
+# Error Handling
+# ────────────────────────────────
 
 def test_numeric_noninvertible_matrix_raises():
     def singular_hamiltonian(k):
