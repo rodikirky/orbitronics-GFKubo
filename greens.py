@@ -1,6 +1,7 @@
 import numpy as np
 import sympy as sp
-from typing import Callable, Union
+from sympy import solveset, S, pprint
+from typing import Callable, Union, Optional
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 
 
@@ -19,7 +20,7 @@ class GreensFunctionCalculator:
                  # if verbose=True, intermediate steps will be printed out
                  verbose: bool = False):
         """
-        A calculator for Green's functions in momentum space.
+        A calculator for Green's functions.
 
         Parameters:
         - hamiltonian: a function that takes momentum k and returns the Hamiltonian matrix
@@ -30,7 +31,6 @@ class GreensFunctionCalculator:
         - retarded: if True computes retarded Green's function; else advanced
         - verbose: if True, prints intermediate matrix states for debugging
         """
-
         self.H = hamiltonian
         self.I = identity
         self.symbolic = symbolic
@@ -43,13 +43,8 @@ class GreensFunctionCalculator:
 
     def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """
-        Compute the Green's function G(k, ω) = [(ω + iη)I - H(k)]⁻¹.
-
-        Parameters:
-        - momentum: 3-vector for k-space input
-
-        Returns:
-        - Green's function matrix at momentum k
+        Compute the Green's function in momentum space by inverting
+        (omega ± i*eta - H(k)).
         """
         H_k = self.H(momentum)  # Hamiltonian at k
         omega_I = self.omega * self.I  # Frequency term scaled identity
@@ -68,24 +63,15 @@ class GreensFunctionCalculator:
 
         if self.verbose:
             print("\nComputing Green's function at k:")
-            print_symbolic_matrix(
-                H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
-            print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print(
-                "Inversion target =\n", tobe_inverted)
+            print_symbolic_matrix(H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
+            print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print("Inversion target =\n", tobe_inverted)
 
         return invert_matrix(tobe_inverted, symbolic=self.symbolic)
 
     def compute_eigenbasis_greens_invert(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
         """
-        Compute the basis which diagonalizes G⁻¹(k, ω) = (ω + iη)I - H(k).  
-        Diagonalize G⁻¹(k, ω) with this basis.
-
-        Parameters:
-        - NONE
-
-        Returns:
-        - Basis change matrix that diagonalizes G⁻¹(k, ω).
-        - Diagonalized amtrix G⁻¹(k, ω)
+        Diagonalize the inverse Green's function matrix to obtain its eigenbasis and eigenvalues.
+        Useful for identifying poles and simplifying root solving.
         """
         symbolic = self.symbolic
         k = sanitize_vector(momentum, symbolic=symbolic)
@@ -97,53 +83,72 @@ class GreensFunctionCalculator:
         q = self.q  # q = 1 for retarded GF, q = -1 for advanced
 
         if self.symbolic:
-            # denominator of G_k as a matrix depending on k
+            # Form the symbolic inverse Green's function
             G_inv = sp.Matrix(omega_I + q * i_eta - H_k)
+
+            # Diagonalize: G⁻¹ = P D P⁻¹
             eigenbasis, G_inv_diag = G_inv.diagonalize()
             G_inv_diag = sp.Matrix(G_inv_diag)
-            assert G_inv_diag == sp.simplify(invert_matrix(
-                eigenbasis) @ G_inv @ eigenbasis), "Expected the " \
-                "diagonalized denominator to be diagonal with the eigenvalues on the diagonal."
             eigenvalues = G_inv_diag.diagonal()
+
+            # Sanity check: construct diagonal matrix from original form by basis change
+            assert G_inv_diag == sp.simplify(invert_matrix(
+                eigenbasis) @ G_inv @ eigenbasis), "Expected the diagonalized matrix to be diagonal."
         else:
-            # denominator of G_k as a matrix depending on k
+            # Numerical case: use NumPy to obtain eigenvalues and eigenvectors
             G_inv = np.array(omega_I + q * i_eta - H_k)
             eigenvalues, eigenbasis = np.linalg.eig(G_inv)
-            G_inv_diag = np.diag(eigenvalues)
-            assert np.allclose(G_inv_diag, invert_matrix(eigenbasis)@G_inv@eigenbasis, rtol=1e-10,
-                               err_msg="Expected the diagonalized denominator to be diagonal with " \
-                               "the eigenvalues on the diagonal.")
+            G_inv_diag = np.diag(eigenvalues) # Simply put the eigenvalues on the diagonal
+
+            # Sanity check: construct diagonal matrix from original form by basis change
+            assert np.allclose(G_inv_diag, invert_matrix(eigenbasis)@G_inv@eigenbasis, rtol=1e-10), \
+                "Expected the diagonalized matrix to be diagonal."
 
         return eigenbasis, eigenvalues, G_inv_diag
 
-    def compute_roots_greens_invert(self) -> Union[np.ndarray, sp.Matrix, list]:
+    def compute_roots_greens_invert(self, solve_for: Optional[sp.Symbol] = None):
         """
-        Compute the Green's function's poles, i.e. the momenta which 
-        make (ω + iη)I - H(k) non-invertible, in k-space.
-        We find those poles n k-space by computing the determinant 
-        and solving for k, such that det{(ω + iη)I - H(k)} = 0.
-
-        Or we diagonalize (ω + iη)I - H(k). We should get three eigenvalues 
-        that are second order polynomials in k, such that there are two (possibly different) 
-        values for each k_x, k_y and k_z such that one or more of the eigenvalues 
-        vanish, resulting in a non-invertible matrix with det{(ω + iη)I - H(k)} = 0.
+        Attempt to symbolically solve for the poles of the Green's function,
+        i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
+        Those poles correspond to the dispersion relations defining the band structure of the material.
 
         Parameters:
-        - NONE
+        - solve_for: The momentum component to solve for symbolically (e.g., k_x).
+                     If None, attempt to solve for all three momentum components (kx, ky, kz).
 
         Returns:
-        - List of momenta k as np.ndarray or sp.matrix
+        - List of (label, solution) tuples, where each label is "lambda_i=0" for the i-th eigenvalue,
+          and solution is either:
+            * a symbolic solution set (FiniteSet or ConditionSet), or
+            * an error message if solving fails.
         """
+        if not self.symbolic:
+            print("\nRoot solving is only supported in symbolic mode. Enable symbolic=True.")
+            return []
 
-        k_roots = []
+        # Define symbolic momentum components
+        kx, ky, kz = sp.symbols("k_x k_y k_z", real=True)
+        k = sp.Matrix([kx, ky, kz])
 
-        if self.symbolic:
-            kx, ky, kz = sp.symbols("k_x k_y k_z")
-            k = sp.Matrix([kx, ky, kz])
-            eigenbasis, eigenvalues, G_inv_diag = self.compute_eigenbasis_greens_invert(k)
-            
-            # now, we need to find the k values, such that one or more eigenvalues vanish
-        else:
-            print("Examination of the roots makes little sense in numeric mode." \
-                  "Switch to symbolic mode to gain more insight!")
-        return k_roots
+        # Compute eigenvalues of the inverse Green's function
+        _, eigenvalues, _ = self.compute_eigenbasis_greens_invert(k)
+
+        if self.verbose:
+            print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
+            for i, lambda_i in enumerate(eigenvalues):
+                print(f"lambda_{i}(k):")
+                pprint(lambda_i)
+
+        root_solutions = []
+        for i, lambda_i in enumerate(eigenvalues):
+            lambda_i = sp.simplify(lambda_i)  # simplify for readability and solving
+
+            try:
+                # Solve λ_i(k) = 0 for specified variable or for full vector
+                variable_to_solve = solve_for if solve_for is not None else (kx, ky, kz)
+                sol = solveset(sp.Eq(lambda_i, 0), variable_to_solve, domain=S.Reals)
+                root_solutions.append((f"lambda_{i}=0", sol))
+            except Exception as e:
+                root_solutions.append((f"lambda_{i}=0", f"Error during solving: {e}"))
+
+        return root_solutions
