@@ -166,7 +166,7 @@ def test_numeric_retarded_vs_advanced():
     retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True)
     advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False)
 
-    momentum = np.array([0.0, 0.0])
+    momentum = np.array([0.0, 0.0]) # since H(k) is constant here, k does not actually matter
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
     G_adv = advanced_calc.compute_kspace_greens_function(momentum)
 
