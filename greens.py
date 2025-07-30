@@ -68,7 +68,7 @@ class GreensFunctionCalculator:
 
         return invert_matrix(tobe_inverted, symbolic=self.symbolic)
 
-    def compute_eigenbasis_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
+    def compute_eigen_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
         """
         Diagonalize the inverse Green's function matrix to obtain its eigenbasis and eigenvalues.
         Useful for identifying poles and simplifying root solving.
@@ -139,7 +139,7 @@ class GreensFunctionCalculator:
         k = sp.Matrix([kx, ky, kz])
 
         # Compute eigenvalues of the inverse Green's function
-        _, eigenvalues, _ = self.compute_eigenbasis_greens_inverse(k)
+        _, eigenvalues, _ = self.compute_eigen_greens_inverse(k)
 
         if self.verbose:
             print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
