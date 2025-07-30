@@ -68,10 +68,18 @@ class GreensFunctionCalculator:
 
         return invert_matrix(tobe_inverted, symbolic=self.symbolic)
 
-    def compute_eigenbasis_greens_invert(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
+    def compute_eigenbasis_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
         """
         Diagonalize the inverse Green's function matrix to obtain its eigenbasis and eigenvalues.
         Useful for identifying poles and simplifying root solving.
+
+        Parameters:
+        - momentum: value at which the Hamiltonian is evaluated
+
+        Returns:
+        - eigenbasis (matrix of eigenvectors) of G⁻¹(k)
+        - eigenvalues of G⁻¹(k)
+        - G⁻¹(k) diagonalized
         """
         symbolic = self.symbolic
         k = sanitize_vector(momentum, symbolic=symbolic)
@@ -106,7 +114,7 @@ class GreensFunctionCalculator:
 
         return eigenbasis, eigenvalues, G_inv_diag
 
-    def compute_roots_greens_invert(self, solve_for: Optional[sp.Symbol] = None):
+    def compute_roots_greens_inverse(self, solve_for: Optional[sp.Symbol] = None):
         """
         Attempt to symbolically solve for the poles of the Green's function,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
@@ -131,7 +139,7 @@ class GreensFunctionCalculator:
         k = sp.Matrix([kx, ky, kz])
 
         # Compute eigenvalues of the inverse Green's function
-        _, eigenvalues, _ = self.compute_eigenbasis_greens_invert(k)
+        _, eigenvalues, _ = self.compute_eigenbasis_greens_inverse(k)
 
         if self.verbose:
             print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
