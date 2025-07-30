@@ -43,7 +43,7 @@ class GreensFunctionCalculator:
 
     def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """
-        Compute the Green's function in momentum space by inverting
+        Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
         (omega ± i*eta - H(k)).
         """
         H_k = self.H(momentum)  # Hamiltonian at k
