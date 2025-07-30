@@ -4,6 +4,7 @@ import sympy as sp
 from system import OrbitronicHamiltonianSystem
 from utils import invert_matrix, hermitian_conjugate
 import pytest
+from typing import Union
 
 # ────────────────────────────────
 # Basic Instantiation
@@ -194,6 +195,69 @@ def test_symbolic_retarded_vs_advanced():
 
     # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
     assert G_adv == G_ret_dagger, "Advanced should be Hermitian conjugate of Retarded"
+
+# ────────────────────────────────
+# Eigenbasis computation
+# ────────────────────────────────
+
+def test_symbolic_eigenvalues_shape_and_form():
+    I = sp.eye(2)
+    k_x, k_y, k_z = sp.symbols("k_x k_y k_z", real=True)
+    def simple_symbolic_h(kvec):
+        return sp.Matrix([
+            [kvec[0], 0],
+            [0, -kvec[0]]
+        ])
+    calc = GreensFunctionCalculator(
+        hamiltonian=simple_symbolic_h,
+        identity=I,
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=0.1,
+        verbose=False
+    )
+    _, eigenvalues, _ = calc.compute_eigen_greens_inverse([k_x, 0, 0])
+    assert isinstance(eigenvalues, Union[list, sp.Matrix])
+    assert all(isinstance(ev, sp.Basic) for ev in eigenvalues)
+    assert len(eigenvalues) == 2
+
+# ────────────────────────────────
+# Roots computation
+# ────────────────────────────────
+
+def test_roots_return_expected_expressions():
+    I = sp.eye(2)
+    k_x, k_y, k_z = sp.symbols("k_x k_y k_z", real=True)
+    def simple_symbolic_h(kvec):
+        return sp.Matrix([
+            [kvec[0], 0],
+            [0, -kvec[0]]
+        ])
+    calc = GreensFunctionCalculator(
+        hamiltonian=simple_symbolic_h,
+        identity=I,
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=0.0,
+        verbose=False
+    )
+    results = calc.compute_roots_greens_inverse(solve_for=k_x)
+    assert isinstance(results, list)
+    assert all(len(pair) == 2 for pair in results)
+    assert any(sp.S(0) in sol for _, sol in results if isinstance(sol, sp.FiniteSet))
+
+def test_numeric_mode_returns_empty_list():
+    calc = GreensFunctionCalculator(
+        hamiltonian=lambda k: np.array([[k[0], 0], [0, -k[0]]]),
+        identity=np.eye(2),
+        symbolic=False,
+        energy_level=0,
+        infinitestimal=0.1,
+        verbose=False
+    )
+    with pytest.warns(UserWarning, match="only supported in symbolic mode"):
+        roots = calc.compute_roots_greens_inverse(solve_for=sp.Symbol("k_x"))
+        assert roots == []
 
 # ────────────────────────────────
 # Verbose output

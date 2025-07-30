@@ -3,6 +3,7 @@ import sympy as sp
 from sympy import solveset, S, pprint
 from typing import Callable, Union, Optional
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
+import warnings
 
 
 class GreensFunctionCalculator:
@@ -100,8 +101,9 @@ class GreensFunctionCalculator:
             eigenvalues = G_inv_diag.diagonal()
 
             # Sanity check: construct diagonal matrix from original form by basis change
-            assert G_inv_diag == sp.simplify(invert_matrix(
-                eigenbasis) @ G_inv @ eigenbasis), "Expected the diagonalized matrix to be diagonal."
+            G_inv_diagonalized = sp.simplify(invert_matrix(eigenbasis, symbolic=self.symbolic) @ G_inv @ eigenbasis)
+            assert G_inv_diag[1] == G_inv_diagonalized[1], "Expected the diagonalized matrix to be diagonal."
+            assert G_inv_diag[0].equals(G_inv_diagonalized[0]), "Expected the diagonalized matrix to have the eigenvalues on the diagonal."
         else:
             # Numerical case: use NumPy to obtain eigenvalues and eigenvectors
             G_inv = np.array(omega_I + q * i_eta - H_k)
@@ -109,7 +111,7 @@ class GreensFunctionCalculator:
             G_inv_diag = np.diag(eigenvalues) # Simply put the eigenvalues on the diagonal
 
             # Sanity check: construct diagonal matrix from original form by basis change
-            assert np.allclose(G_inv_diag, invert_matrix(eigenbasis)@G_inv@eigenbasis, rtol=1e-10), \
+            assert np.allclose(G_inv_diag, invert_matrix(eigenbasis, symbolic=self.symbolic)@G_inv@eigenbasis, rtol=1e-10), \
                 "Expected the diagonalized matrix to be diagonal."
 
         return eigenbasis, eigenvalues, G_inv_diag
@@ -131,7 +133,7 @@ class GreensFunctionCalculator:
             * an error message if solving fails.
         """
         if not self.symbolic:
-            print("\nRoot solving is only supported in symbolic mode. Enable symbolic=True.")
+            warnings.warn("Root solving is only supported in symbolic mode. Enable symbolic=True.")
             return []
 
         # Define symbolic momentum components
