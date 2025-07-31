@@ -202,7 +202,6 @@ def test_symbolic_retarded_vs_advanced():
 
 def test_symbolic_eigenvalues_shape_and_form():
     I = sp.eye(2)
-    k_x, k_y, k_z = sp.symbols("k_x k_y k_z", real=True)
     def simple_symbolic_h(kvec):
         return sp.Matrix([
             [kvec[0], 0],
@@ -216,7 +215,8 @@ def test_symbolic_eigenvalues_shape_and_form():
         infinitestimal=0.1,
         verbose=False
     )
-    _, eigenvalues, _ = calc.compute_eigen_greens_inverse([k_x, 0, 0])
+    k = calc.k_symbols
+    _, eigenvalues, _ = calc.compute_eigen_greens_inverse(k)
     assert isinstance(eigenvalues, Union[list, sp.Matrix])
     assert all(isinstance(ev, sp.Basic) for ev in eigenvalues)
     assert len(eigenvalues) == 2
@@ -227,7 +227,6 @@ def test_symbolic_eigenvalues_shape_and_form():
 
 def test_roots_return_expected_expressions():
     I = sp.eye(2)
-    k_x, k_y, k_z = sp.symbols("k_x k_y k_z", real=True)
     def simple_symbolic_h(kvec):
         return sp.Matrix([
             [kvec[0], 0],
@@ -241,12 +240,12 @@ def test_roots_return_expected_expressions():
         infinitestimal=0.0,
         verbose=False
     )
-    results = calc.compute_roots_greens_inverse(solve_for=k_x)
+    results = calc.compute_roots_greens_inverse(solve_for=0)
     assert isinstance(results, list)
     assert all(len(pair) == 2 for pair in results)
     assert any(sp.S(0) in sol for _, sol in results if isinstance(sol, sp.FiniteSet))
 
-def test_numeric_mode_returns_empty_list():
+def test_warns_in_numeric_mode_returns_empty_list():
     calc = GreensFunctionCalculator(
         hamiltonian=lambda k: np.array([[k[0], 0], [0, -k[0]]]),
         identity=np.eye(2),
@@ -256,8 +255,27 @@ def test_numeric_mode_returns_empty_list():
         verbose=False
     )
     with pytest.warns(UserWarning, match="only supported in symbolic mode"):
-        roots = calc.compute_roots_greens_inverse(solve_for=sp.Symbol("k_x"))
+        roots = calc.compute_roots_greens_inverse(solve_for=0)
         assert roots == []
+
+def test_warns_on_non_polynomial_roots():
+    def non_polynomial_hamiltonian(kvec):
+        kx, ky, kz = kvec
+        return sp.Matrix([
+            [sp.sin(kx), 0],
+            [0, -sp.sin(kx)]
+        ])
+    calc = GreensFunctionCalculator(
+        hamiltonian=non_polynomial_hamiltonian,
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=0.0,
+        verbose=False
+    )
+    
+    #with pytest.warns(UserWarning, match="may fail: expression is not polynomial"):
+    #    calc.compute_roots_greens_invert(solve_for=sp.Symbol("k_x"))
 
 # ────────────────────────────────
 # Verbose output

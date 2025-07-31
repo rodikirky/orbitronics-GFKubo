@@ -38,6 +38,13 @@ class GreensFunctionCalculator:
         self.omega = energy_level
         self.eta = infinitestimal
         self.q = 1 if retarded else -1
+        
+        self.k_symbols = sp.symbols("k_x k_y k_z", real=True) 
+        """
+        Canonical momentum symbols used internally for solving:
+        k_symbols[0] = k_x, k_symbols[1] = k_y, k_symbols[2] = k_z
+        Only relevant for symbolic mode.
+        """
 
         # for easy debugging along the way
         self.verbose = verbose
@@ -117,15 +124,14 @@ class GreensFunctionCalculator:
 
         return eigenbasis, eigenvalues, G_inv_diag
 
-    def compute_roots_greens_inverse(self, solve_for: Optional[sp.Symbol] = None):
+    def compute_roots_greens_inverse(self, solve_for: Optional[int] = None):
         """
         Attempt to symbolically solve for the poles of the Green's function,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
         Those poles correspond to the dispersion relations defining the band structure of the material.
 
-        Parameters:
-        - solve_for: The momentum component to solve for symbolically (e.g., k_x).
-                     If None, attempt to solve for all three momentum components (kx, ky, kz).
+       Parameters:
+        - solve_for: Integer index (0 for k_x, 1 for k_y, 2 for k_z), or None to solve for all simultaneously.
 
         Returns:
         - List of (label, solution) tuples, where each label is "lambda_i=0" for the i-th eigenvalue,
@@ -133,12 +139,22 @@ class GreensFunctionCalculator:
             * a symbolic solution set (FiniteSet or ConditionSet), or
             * an error message if solving fails.
         """
+        if solve_for is not None:
+            if solve_for not in {0, 1, 2}:
+                raise ValueError(
+                    f"'solve_for' must be one of {{0, 1, 2}} "
+                    f"corresponding to k_x, k_y, or k_z. Got: {solve_for}"
+                )
+            solve_for_symbol = self.k_symbols[solve_for]
+        else:
+            solve_for_symbol = None
+        
         if not self.symbolic:
             warnings.warn("Root solving is only supported in symbolic mode. Enable symbolic=True.")
             return []
 
         # Define symbolic momentum components
-        kx, ky, kz = sp.symbols("k_x k_y k_z", real=True)
+        kx, ky, kz = self.k_symbols
         k = sp.Matrix([kx, ky, kz])
 
         # Compute eigenvalues of the inverse Green's function
@@ -153,10 +169,13 @@ class GreensFunctionCalculator:
         root_solutions = []
         for i, lambda_i in enumerate(eigenvalues):
             lambda_i = sp.simplify(lambda_i)  # simplify for readability and solving
+            if not lambda_i.is_polynomial(solve_for_symbol):
+                warnings.warn(f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {solve_for_symbol}.", stacklevel=2)
+
 
             try:
                 # Solve λ_i(k) = 0 for specified variable or for full vector
-                variable_to_solve = solve_for if solve_for is not None else (kx, ky, kz)
+                variable_to_solve = solve_for_symbol if solve_for_symbol is not None else (kx, ky, kz)
                 sol = solveset(sp.Eq(lambda_i, 0), variable_to_solve, domain=S.Reals)
                 root_solutions.append((f"lambda_{i}=0", sol))
             except Exception as e:
