@@ -64,6 +64,7 @@ class GreensFunctionCalculator:
 
         if self.verbose:
             print("\nComputing Green's function at k:")
+            print("\nwith k = ", momentum)
             print_symbolic_matrix(H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
             print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print("Inversion target =\n", tobe_inverted)
 

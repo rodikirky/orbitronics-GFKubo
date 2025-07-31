@@ -296,9 +296,11 @@ def test_sybolic_verbose_output(capsys):
     
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
+    calculator.compute_roots_greens_inverse()
 
     captured = capsys.readouterr()
     assert "( ω ± iη - H(k) )" in captured.out
+    assert "eigenvalues" in captured.out
 
 # ────────────────────────────────
 # Error Handling
