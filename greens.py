@@ -163,3 +163,10 @@ class GreensFunctionCalculator:
                 root_solutions.append((f"lambda_{i}=0", f"Error during solving: {e}"))
 
         return root_solutions
+    
+    def compute_rspace_greens_function(self):
+        k = 1
+        G_k = self.compute_kspace_greens_function(k)
+        fourier_transform = G_k
+
+        return fourier_transform
