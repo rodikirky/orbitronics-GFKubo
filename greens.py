@@ -155,7 +155,7 @@ class GreensFunctionCalculator:
 
         # Define symbolic momentum components
         kx, ky, kz = self.k_symbols
-        k = sp.Matrix([kx, ky, kz])
+        k = self.k_symbols
 
         # Compute eigenvalues of the inverse Green's function
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(k)

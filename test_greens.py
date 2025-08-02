@@ -274,8 +274,20 @@ def test_warns_on_non_polynomial_roots():
         verbose=False
     )
     
-    #with pytest.warns(UserWarning, match="may fail: expression is not polynomial"):
-    #    calc.compute_roots_greens_invert(solve_for=sp.Symbol("k_x"))
+    with pytest.warns(UserWarning, match="may fail: expression is not polynomial"):
+        calc.compute_roots_greens_inverse(solve_for=0)
+
+def test_invalid_solve_for_index_raises_value_error():
+    calc = GreensFunctionCalculator(
+        hamiltonian=lambda k: sp.Matrix([[k[0], 0], [0, -k[0]]]),
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=0.1
+    )
+
+    with pytest.raises(ValueError, match="solve_for.*0, 1, 2"):
+        calc.compute_roots_greens_inverse(solve_for=5)
 
 # ────────────────────────────────
 # Verbose output
