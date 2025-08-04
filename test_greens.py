@@ -381,9 +381,10 @@ def test_numeric_verbose_output(capsys):
     captured = capsys.readouterr()
     assert "Inversion target" in captured.out
 
-def test_sybolic_verbose_output(capsys):
+def test_symbolic_verbose_output(capsys):
     def dummy_H(k): return sp.eye(2)
     omega, eta = sp.symbols("omega eta", real=True)
+    z, z_prime = sp.symbols("z z'", real=True)
 
     calculator = GreensFunctionCalculator(
         hamiltonian=dummy_H,
@@ -397,10 +398,12 @@ def test_sybolic_verbose_output(capsys):
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
     calculator.compute_roots_greens_inverse()
+    calculator.compute_rspace_greens_symbolic_1d(z, z_prime)
 
     captured = capsys.readouterr()
     assert "( ω ± iη - H(k) )" in captured.out
     assert "eigenvalues" in captured.out
+    assert "Fourier transform" in captured.out
 
 # ────────────────────────────────
 # Error Handling
