@@ -49,6 +49,8 @@ class GreensFunctionCalculator:
         # for easy debugging along the way
         self.verbose = verbose
 
+    # --- GF computation in k-space ---
+
     def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
@@ -76,6 +78,8 @@ class GreensFunctionCalculator:
             print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print("Inversion target =\n", tobe_inverted)
 
         return invert_matrix(tobe_inverted, symbolic=self.symbolic)
+
+    # --- Analytical helpers ---
 
     def compute_eigen_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
         """
@@ -183,52 +187,95 @@ class GreensFunctionCalculator:
 
         return root_solutions
     
+    # --- Fourier transformation to real space ---
+
     def compute_rspace_greens_symbolic_1d(self, z: Union[float, sp.Basic], z_prime: Union[float, sp.Basic]):
         """
-        Symbolically compute the 1D real-space Green's function G(z, z'; k_x, k_y)
-        using the Fourier transform along k_z for each eigenvalue in diagonalized form.
+        Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem,
+        assuming translational invariance in x and y. Only diagonal entries are returned.
         """
+
         if not self.symbolic:
             warnings.warn("Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.")
             return []
         
         kvec = self.k_symbols
-        _, _, kz = self.k_symbols
-        _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
+        kx, ky, kz = self.k_symbols
 
         q = self.q
         assert z.is_real and z_prime.is_real, "Both z and z′ must be real symbols or numbers"
         a = q # default assumption: a=z-z'>0 for retarded GF and a<0 for advanced GF
 
-        if not isinstance(z, sp.Basic):
-            assert not isinstance(z_prime, sp.Basic), "Expected z' to be a real number, not a symbol."
+        if not isinstance(z, sp.Symbol):
+            assert not isinstance(z_prime, sp.Symbol), "Expected z' to be a real number, not a symbol."
             z = float(z)
             z_prime = float(z_prime)
             a = sp.sign(z - z_prime)
         else:
-            assert isinstance(z_prime, sp.Basic), "Expected z' to be instance of sp.Symbol."
+            assert isinstance(z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
         
-        roots = self.compute_roots_greens_inverse(solve_for=2) # roots in k_z
-        poles = [] # poles in the respective half-plane chosen by Jordan's lemma
-        for i, root_i in enumerate(roots):
-            if a == sp.sign(sp.im(root_i)):
-                poles.append(root_i)
+        root_sets = self.compute_roots_greens_inverse(solve_for=2) # solve_for = 2 means we solve for k_z = self.k_symbols[2]
+        poles_per_lambda = self._extract_valid_poles_from_root_solutions(root_sets)
         
-        G_z = []
-        for i, lambda_i in enumerate(eigenvalues):
-            lambda_i = sp.simplify(lambda_i)
-            phase = sp.exp(sp.I * kz * (z - z_prime))
-            prefactor = 1 / (2 * sp.pi)
-            integrand = prefactor * phase / lambda_i
-            result = sp.integrate(integrand, (kz, -sp.oo, sp.oo), conds='none')
-            if result.has(sp.Integral):  # unevaluated
-                warnings.warn(f"Could not compute integral for band {i}; returned unevaluated integral.", stacklevel=2)
-            G_z.append((f"G(z, z') band {i}", result))
+        _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
-        if self.verbose:
-            print(f"\nBand {i} (diagonal element of G⁻¹):")
-            sp.pprint(lambda_i)
-            print(f"Fourier transform G_{i}(z, z') =")
-            sp.pprint(result)
+        G_z_diag = []
+        has_contributions = False
+        for i, (lambda_i, poles_i) in enumerate(zip(eigenvalues, poles_per_lambda)):
+            lambda_i = sp.factor(lambda_i, extension=True)
+            lambda_i = lambda_i.subs(self.k_symbols[0], kx) # ensure symbol consistency
+            lambda_i = lambda_i.subs(self.k_symbols[1], ky) # ensure symbol consistency
+            lambda_i = lambda_i.subs(self.k_symbols[2], kz) # ensure symbol consistency
+            contrib = 0
+            for pole in poles_i:
+                if a == sp.sign(sp.im(pole)):
+                    numerator = sp.exp(sp.I * pole * (z - z_prime))
+                    denom = sp.simplify(lambda_i / (kz - pole))
+                    residue = numerator / denom.subs(kz, pole)
+                    contrib += residue
+                    has_contributions = True
+            
+            if self.verbose:
+                print(f"\nλ_{i}(k) = {lambda_i}")
+                print(f"  Poles: {poles_i}")
+                print(f"  Contribution to residue sum: {contrib}")
+            
+            G_z_diag.append(sp.I * contrib)
 
+        if not has_contributions:
+            if self.verbose:
+                print("No residues contributed — returning zero matrix.")
+            return sp.zeros(len(self.I))
+
+        if all(val == sp.S(0) for val in G_z_diag):
+            warnings.warn("Green's function is identically zero even though there are contributing poles.")
+        
+        G_z = sp.diag(*G_z_diag)
+        # Note: Currently returning only diagonal Green's function G(z, z′)
+        # Full matrix reconstruction from eigenbasis could be added later if needed.
         return G_z
+    
+    # --- Internal utilities ---
+
+    @staticmethod
+    def _extract_valid_poles_from_root_solutions(root_solutions):
+        """
+        Extract valid poles from the output of compute_roots_greens_inverse.
+        
+        Returns:
+            List[List[sp.Basic]]: One list per eigenvalue, containing its poles.
+        """
+        poles_per_lambda = []
+
+        for label, solution in root_solutions:
+            if isinstance(solution, sp.FiniteSet):
+                poles = list(solution)
+            elif hasattr(solution, 'is_EmptySet') and solution.is_EmptySet:
+                poles = []
+            else:
+                # Could be a ConditionSet or error string; skip
+                poles = []
+            poles_per_lambda.append(poles)
+
+        return poles_per_lambda
+
