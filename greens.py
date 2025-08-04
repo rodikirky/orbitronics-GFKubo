@@ -199,7 +199,7 @@ class GreensFunctionCalculator:
             prefactor = 1 / (2 * sp.pi)
             integrand = prefactor * phase / lambda_i
             result = sp.integrate(integrand, (kz, -sp.oo, sp.oo), conds='none')
-            if isinstance(result, sp.Integral):  # unevaluated
+            if result.has(sp.Integral):  # unevaluated
                 warnings.warn(f"Could not compute integral for band {i}; returned unevaluated integral.", stacklevel=2)
             G_z.append((f"G(z, z') band {i}", result))
 

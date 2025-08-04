@@ -316,6 +316,49 @@ def test_rspace_green_integrates_known_form():
         assert isinstance(expr, sp.Basic)
         assert "Integral" not in str(expr)
 
+def test_warns_when_integral_cannot_be_evaluated():
+    z, z_prime = sp.symbols("z z'", real=True)
+    eta = sp.symbols("eta", real=True)
+
+    def H(kvec):
+        # A non-polynomial (e.g. transcendental) dispersion: sympy can't integrate this
+        _, _, kz = kvec
+        return sp.Matrix([[sp.sin(kz), 0], [0, -sp.sin(kz)]])
+
+    calc = GreensFunctionCalculator(
+        hamiltonian=H,
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=eta,
+        verbose=False
+    )
+
+    with pytest.warns(UserWarning, match="Could not compute integral"):
+        result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
+        assert any(expr.atoms(sp.Integral) for _, expr in result)
+
+def test_result_depends_on_difference_not_absolutes():
+    eta = sp.symbols("eta", real=True)
+
+    def H(kvec):
+            _, _, kz = kvec
+            return sp.Matrix([[kz, 0], [0, -kz]])  # Diagonal, easy test
+
+    calc = GreensFunctionCalculator(
+        hamiltonian=H,
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=eta,
+        verbose=False
+    )
+    
+    result1 = calc.compute_rspace_greens_symbolic_1d(z=1, z_prime=0)
+    result2 = calc.compute_rspace_greens_symbolic_1d(z=2, z_prime=1)    
+    for (label1, expr1), (label2, expr2) in zip(result1, result2):
+        assert sp.simplify(expr1 - expr2) == 0
+
 # ────────────────────────────────
 # Verbose output
 # ────────────────────────────────
