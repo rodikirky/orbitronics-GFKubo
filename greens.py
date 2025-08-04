@@ -189,7 +189,7 @@ class GreensFunctionCalculator:
         using the Fourier transform along k_z for each eigenvalue in diagonalized form.
         """
         kvec = self.k_symbols
-        kx, ky, kz = self.k_symbols
+        _, _, kz = self.k_symbols
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
         
         G_z = []
