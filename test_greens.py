@@ -346,6 +346,26 @@ def test_result_depends_on_difference_not_absolutes():
     for (label1, expr1), (label2, expr2) in zip(result1, result2):
         assert sp.simplify(expr1 - expr2) == 0
 
+def test_multiple_bands_return_distinct_results():
+    z, z_prime = sp.symbols("z z'", real=True)
+
+    def H(kvec):
+        kx, ky, kz = kvec
+        return sp.Matrix([[kz, 0], [0, 2 * kz]])
+
+    calc = GreensFunctionCalculator(
+        hamiltonian=H,
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=0.1,
+        verbose=False
+    )
+
+    results = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
+    assert results[0][1] != results[1][1]
+
+
 # ────────────────────────────────
 # Verbose output
 # ────────────────────────────────
