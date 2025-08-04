@@ -183,9 +183,22 @@ class GreensFunctionCalculator:
 
         return root_solutions
     
-    def compute_rspace_greens_function(self):
-        k = 1
-        G_k = self.compute_kspace_greens_function(k)
-        fourier_transform = G_k
+    def compute_rspace_greens_symbolic_1d(self, z: sp.Symbol, z_prime: sp.Symbol):
+        """
+        Symbolically compute the 1D real-space Green's function G(z, z'; k_x, k_y)
+        using the Fourier transform along k_z for each eigenvalue in diagonalized form.
+        """
+        kvec = self.k_symbols
+        kx, ky, kz = self.k_symbols
+        _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
+        
+        G_z = []
+        for i, lambda_i in enumerate(eigenvalues):
+            lambda_i = sp.simplify(lambda_i)
+            phase = sp.exp(sp.I * kz * (z - z_prime))
+            prefactor = 1 / (2 * sp.pi)
+            integrand = prefactor * phase / lambda_i
+            result = sp.integrate(integrand, (kz, -sp.oo, sp.oo), conds='none')
+            G_z.append((f"G_z_diag_{i}", result))
 
-        return fourier_transform
+        return G_z
