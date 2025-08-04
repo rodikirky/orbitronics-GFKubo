@@ -110,8 +110,8 @@ class GreensFunctionCalculator:
 
             # Sanity check: construct diagonal matrix from original form by basis change
             G_inv_diagonalized = sp.simplify(invert_matrix(eigenbasis, symbolic=self.symbolic) @ G_inv @ eigenbasis)
-            assert G_inv_diag[1] == G_inv_diagonalized[1], "Expected the diagonalized matrix to be diagonal."
-            assert G_inv_diag[0].equals(G_inv_diagonalized[0]), "Expected the diagonalized matrix to have the eigenvalues on the diagonal."
+            assert G_inv_diag.equals(G_inv_diagonalized), "Expected diagonalized matrix to be diagonal and to have the eigenvalues on the diagonal."
+        
         else:
             # Numerical case: use NumPy to obtain eigenvalues and eigenvectors
             G_inv = np.array(omega_I + q * i_eta - H_k)
@@ -183,7 +183,7 @@ class GreensFunctionCalculator:
 
         return root_solutions
     
-    def compute_rspace_greens_symbolic_1d(self, z: sp.Symbol, z_prime: sp.Symbol):
+    def compute_rspace_greens_symbolic_1d(self, z: Union[float, sp.Basic], z_prime: Union[float, sp.Basic]):
         """
         Symbolically compute the 1D real-space Green's function G(z, z'; k_x, k_y)
         using the Fourier transform along k_z for each eigenvalue in diagonalized form.
@@ -195,6 +195,24 @@ class GreensFunctionCalculator:
         kvec = self.k_symbols
         _, _, kz = self.k_symbols
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
+
+        q = self.q
+        assert z.is_real and z_prime.is_real, "Both z and z′ must be real symbols or numbers"
+        a = q # default assumption: a=z-z'>0 for retarded GF and a<0 for advanced GF
+
+        if not isinstance(z, sp.Basic):
+            assert not isinstance(z_prime, sp.Basic), "Expected z' to be a real number, not a symbol."
+            z = float(z)
+            z_prime = float(z_prime)
+            a = sp.sign(z - z_prime)
+        else:
+            assert isinstance(z_prime, sp.Basic), "Expected z' to be instance of sp.Symbol."
+        
+        roots = self.compute_roots_greens_inverse(solve_for=2) # roots in k_z
+        poles = [] # poles in the respective half-plane chosen by Jordan's lemma
+        for i, root_i in enumerate(roots):
+            if a == sp.sign(sp.im(root_i)):
+                poles.append(root_i)
         
         G_z = []
         for i, lambda_i in enumerate(eigenvalues):

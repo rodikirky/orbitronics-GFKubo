@@ -365,6 +365,28 @@ def test_multiple_bands_return_distinct_results():
     results = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
     assert results[0][1] != results[1][1]
 
+def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
+    z, z_prime = sp.symbols("z z'", real=True)
+
+    def H(kvec):
+        _, _, kz = kvec
+        return sp.Matrix([[kz]])
+
+    calc = GreensFunctionCalculator(
+        hamiltonian=H,
+        identity=sp.eye(1),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=1e-20,  # small eta
+        verbose=False
+    )
+
+    result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
+    _, G_expr = result[0]
+
+    # Substitute values for z, z′ such that z < z′
+    val = G_expr.subs({z: 0, z_prime: 1}).evalf()
+    assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
 
 # ────────────────────────────────
 # Verbose output
