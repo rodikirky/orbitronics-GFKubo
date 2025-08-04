@@ -199,6 +199,15 @@ class GreensFunctionCalculator:
             prefactor = 1 / (2 * sp.pi)
             integrand = prefactor * phase / lambda_i
             result = sp.integrate(integrand, (kz, -sp.oo, sp.oo), conds='none')
-            G_z.append((f"G_z_diag_{i}", result))
+            if isinstance(result, sp.Integral):  # unevaluated
+                warnings.warn(f"Could not compute integral for band {i}; returned unevaluated integral.", stacklevel=2)
+            G_z.append((f"G(z, z') band {i}", result))
+
+        if self.verbose:
+            print(f"\nBand {i} (diagonal element of G⁻¹):")
+            sp.pprint(lambda_i)
+            print(f"Fourier transform G_{i}(z, z') =")
+            sp.pprint(result)
+
 
         return G_z
