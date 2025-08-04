@@ -209,5 +209,4 @@ class GreensFunctionCalculator:
             print(f"Fourier transform G_{i}(z, z') =")
             sp.pprint(result)
 
-
         return G_z

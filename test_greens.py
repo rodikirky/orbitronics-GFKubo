@@ -289,6 +289,32 @@ def test_invalid_solve_for_index_raises_value_error():
     with pytest.raises(ValueError, match="solve_for.*0, 1, 2"):
         calc.compute_roots_greens_inverse(solve_for=5)
 
+
+# ────────────────────────────────
+# 1D GF construction in real space
+# ────────────────────────────────
+
+def test_rspace_green_integrates_known_form():
+    z, z_prime = sp.symbols("z z'", real=True)
+
+    def H(kvec):
+        kx, ky, kz = kvec
+        return sp.Matrix([[kz, 0], [0, -kz]])  # Diagonal, easy test
+
+    calc = GreensFunctionCalculator(
+        hamiltonian=H,
+        identity=sp.eye(2),
+        symbolic=True,
+        energy_level=0,
+        infinitestimal=0.1,
+        verbose=False
+    )
+
+    result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
+    for label, expr in result:
+        assert isinstance(expr, sp.Basic)
+        assert "Integral" not in str(expr)
+
 # ────────────────────────────────
 # Verbose output
 # ────────────────────────────────
