@@ -296,9 +296,10 @@ def test_invalid_solve_for_index_raises_value_error():
 
 def test_rspace_green_integrates_known_form():
     z, z_prime = sp.symbols("z z'", real=True)
+    eta = sp.symbols("eta", real=True)
 
     def H(kvec):
-        kx, ky, kz = kvec
+        _, _, kz = kvec
         return sp.Matrix([[kz, 0], [0, -kz]])  # Diagonal, easy test
 
     calc = GreensFunctionCalculator(
@@ -306,7 +307,7 @@ def test_rspace_green_integrates_known_form():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=0.1,
+        infinitestimal=eta,
         verbose=False
     )
 
