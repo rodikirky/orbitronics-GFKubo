@@ -188,6 +188,10 @@ class GreensFunctionCalculator:
         Symbolically compute the 1D real-space Green's function G(z, z'; k_x, k_y)
         using the Fourier transform along k_z for each eigenvalue in diagonalized form.
         """
+        if not self.symbolic:
+            warnings.warn("Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.")
+            return []
+        
         kvec = self.k_symbols
         _, _, kz = self.k_symbols
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)

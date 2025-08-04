@@ -245,19 +245,6 @@ def test_roots_return_expected_expressions():
     assert all(len(pair) == 2 for pair in results)
     assert any(sp.S(0) in sol for _, sol in results if isinstance(sol, sp.FiniteSet))
 
-def test_warns_in_numeric_mode_returns_empty_list():
-    calc = GreensFunctionCalculator(
-        hamiltonian=lambda k: np.array([[k[0], 0], [0, -k[0]]]),
-        identity=np.eye(2),
-        symbolic=False,
-        energy_level=0,
-        infinitestimal=0.1,
-        verbose=False
-    )
-    with pytest.warns(UserWarning, match="only supported in symbolic mode"):
-        roots = calc.compute_roots_greens_inverse(solve_for=0)
-        assert roots == []
-
 def test_warns_on_non_polynomial_roots():
     def non_polynomial_hamiltonian(kvec):
         kx, ky, kz = kvec
@@ -451,3 +438,21 @@ def test_symbolic_noninvertible_matrix_raises():
 
     with pytest.raises(ValueError, match="not invertible"):
         calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
+
+def test_warns_in_numeric_mode_returns_empty_list():
+    calc = GreensFunctionCalculator(
+        hamiltonian=lambda k: np.array([[k[0], 0], [0, -k[0]]]),
+        identity=np.eye(2),
+        symbolic=False,
+        energy_level=0,
+        infinitestimal=0.1,
+        verbose=False
+    )
+
+    with pytest.warns(UserWarning, match="only supported in symbolic mode"):
+        roots = calc.compute_roots_greens_inverse(solve_for=0)
+        assert roots == []
+    
+    with pytest.warns(UserWarning, match="only supported in symbolic mode"):
+        result = calc.compute_rspace_greens_symbolic_1d(sp.symbols("z"), sp.symbols("z'"))
+        assert result == []
