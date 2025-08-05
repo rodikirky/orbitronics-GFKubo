@@ -49,6 +49,23 @@ class GreensFunctionCalculator:
         # for easy debugging along the way
         self.verbose = verbose
 
+    def info(self):
+        """
+        Print a summary of the internal configuration of this calculator instance.
+        """
+        print("\nGreensFunctionCalculator configuration:")
+        print("======================================")
+        print(f"Symbolic mode         : {self.symbolic}")
+        print(f"Verbose mode          : {self.verbose}")
+        print(f"Energy ω              : {self.omega}")
+        print(f"Infinitesimal η       : {self.eta}")
+        green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
+        print(f"Green's function type : {green_type}")
+        print(f"Identity matrix       : {self.I.shape}")
+        print(f"H(k) callable         : {'Yes' if callable(self.H) else 'No'}")
+        print(f"Momentum symbols      : {self.k_symbols}")
+        print("======================================\n")
+
     # --- GF computation in k-space ---
 
     def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
