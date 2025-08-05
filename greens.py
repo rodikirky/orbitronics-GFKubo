@@ -38,8 +38,8 @@ class GreensFunctionCalculator:
         self.omega = energy_level
         self.eta = infinitestimal
         self.q = 1 if retarded else -1
-        
-        self.k_symbols = sp.symbols("k_x k_y k_z", real=True) 
+
+        self.k_symbols = sp.symbols("k_x k_y k_z", real=True)
         """
         Canonical momentum symbols used internally for solving:
         k_symbols[0] = k_x, k_symbols[1] = k_y, k_symbols[2] = k_z
@@ -74,8 +74,10 @@ class GreensFunctionCalculator:
         if self.verbose:
             print("\nComputing Green's function at k:")
             print("\nwith k = ", momentum)
-            print_symbolic_matrix(H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
-            print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print("Inversion target =\n", tobe_inverted)
+            print_symbolic_matrix(
+                H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
+            print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print(
+                "Inversion target =\n", tobe_inverted)
 
         return invert_matrix(tobe_inverted, symbolic=self.symbolic)
 
@@ -113,14 +115,17 @@ class GreensFunctionCalculator:
             eigenvalues = G_inv_diag.diagonal()
 
             # Sanity check: construct diagonal matrix from original form by basis change
-            G_inv_diagonalized = sp.simplify(invert_matrix(eigenbasis, symbolic=self.symbolic) @ G_inv @ eigenbasis)
-            assert G_inv_diag.equals(G_inv_diagonalized), "Expected diagonalized matrix to be diagonal and to have the eigenvalues on the diagonal."
-        
+            G_inv_diagonalized = sp.simplify(invert_matrix(
+                eigenbasis, symbolic=self.symbolic) @ G_inv @ eigenbasis)
+            assert G_inv_diag.equals(
+                G_inv_diagonalized), "Expected diagonalized matrix to be diagonal and to have the eigenvalues on the diagonal."
+
         else:
             # Numerical case: use NumPy to obtain eigenvalues and eigenvectors
             G_inv = np.array(omega_I + q * i_eta - H_k)
             eigenvalues, eigenbasis = np.linalg.eig(G_inv)
-            G_inv_diag = np.diag(eigenvalues) # Simply put the eigenvalues on the diagonal
+            # Simply put the eigenvalues on the diagonal
+            G_inv_diag = np.diag(eigenvalues)
 
             # Sanity check: construct diagonal matrix from original form by basis change
             assert np.allclose(G_inv_diag, invert_matrix(eigenbasis, symbolic=self.symbolic)@G_inv@eigenbasis, rtol=1e-10), \
@@ -152,9 +157,10 @@ class GreensFunctionCalculator:
             solve_for_symbol = self.k_symbols[solve_for]
         else:
             solve_for_symbol = None
-        
+
         if not self.symbolic:
-            warnings.warn("Root solving is only supported in symbolic mode. Enable symbolic=True.")
+            warnings.warn(
+                "Root solving is only supported in symbolic mode. Enable symbolic=True.")
             return []
 
         # Define symbolic momentum components
@@ -172,60 +178,77 @@ class GreensFunctionCalculator:
 
         root_solutions = []
         for i, lambda_i in enumerate(eigenvalues):
-            lambda_i = sp.simplify(lambda_i)  # simplify for readability and solving
+            # simplify for readability and solving
+            lambda_i = sp.simplify(lambda_i)
             if not lambda_i.is_polynomial(solve_for_symbol):
-                warnings.warn(f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {solve_for_symbol}.", stacklevel=2)
-
+                warnings.warn(
+                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {solve_for_symbol}.", stacklevel=2)
 
             try:
                 # Solve λ_i(k) = 0 for specified variable or for full vector
-                variable_to_solve = solve_for_symbol if solve_for_symbol is not None else (kx, ky, kz)
-                sol = solveset(sp.Eq(lambda_i, 0), variable_to_solve, domain=S.Reals)
+                variable_to_solve = solve_for_symbol if solve_for_symbol is not None else (
+                    kx, ky, kz)
+                sol = solveset(sp.Eq(lambda_i, 0),
+                               variable_to_solve, domain=S.Reals)
                 root_solutions.append((f"lambda_{i}=0", sol))
             except Exception as e:
-                root_solutions.append((f"lambda_{i}=0", f"Error during solving: {e}"))
+                root_solutions.append(
+                    (f"lambda_{i}=0", f"Error during solving: {e}"))
 
         return root_solutions
-    
+
     # --- Fourier transformation to real space ---
 
-    def compute_rspace_greens_symbolic_1d(self, z: Union[float, sp.Basic], z_prime: Union[float, sp.Basic]):
+    def compute_rspace_greens_symbolic_1d(self,
+                                          z: Union[float, sp.Basic],
+                                          z_prime: Union[float, sp.Basic],
+                                          full_matrix: bool = False):
         """
         Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem,
-        assuming translational invariance in x and y. Only diagonal entries are returned.
+        assuming translational invariance in x and y. Only diagonal entries are returned in default mode. 
+        If full matrix in the original basis is needed, enable full_matrix=True.
         """
 
         if not self.symbolic:
-            warnings.warn("Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.")
+            warnings.warn(
+                "Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.")
             return []
-        
+
         kvec = self.k_symbols
         kx, ky, kz = self.k_symbols
 
         q = self.q
-        assert z.is_real and z_prime.is_real, "Both z and z′ must be real symbols or numbers"
-        a = q # default assumption: a=z-z'>0 for retarded GF and a<0 for advanced GF
+        assert sp.simplify(z).is_real and sp.simplify(
+            z_prime).is_real, "Both z and z′ must be real symbols or numbers"
+        a = q  # default assumption: a=z-z'>0 for retarded GF and a<0 for advanced GF
 
         if not isinstance(z, sp.Symbol):
-            assert not isinstance(z_prime, sp.Symbol), "Expected z' to be a real number, not a symbol."
+            assert not isinstance(
+                z_prime, sp.Symbol), "Expected z' to be a real number, not a symbol."
             z = float(z)
             z_prime = float(z_prime)
             a = sp.sign(z - z_prime)
         else:
-            assert isinstance(z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
-        
-        root_sets = self.compute_roots_greens_inverse(solve_for=2) # solve_for = 2 means we solve for k_z = self.k_symbols[2]
-        poles_per_lambda = self._extract_valid_poles_from_root_solutions(root_sets)
-        
+            assert isinstance(
+                z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
+
+        # solve_for = 2 means we solve for k_z = self.k_symbols[2]
+        root_sets = self.compute_roots_greens_inverse(solve_for=2)
+        poles_per_lambda = self._extract_valid_poles_from_root_solutions(
+            root_sets)
+
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
         G_z_diag = []
         has_contributions = False
         for i, (lambda_i, poles_i) in enumerate(zip(eigenvalues, poles_per_lambda)):
             lambda_i = sp.factor(lambda_i, extension=True)
-            lambda_i = lambda_i.subs(self.k_symbols[0], kx) # ensure symbol consistency
-            lambda_i = lambda_i.subs(self.k_symbols[1], ky) # ensure symbol consistency
-            lambda_i = lambda_i.subs(self.k_symbols[2], kz) # ensure symbol consistency
+            # ensure symbol consistency
+            lambda_i = lambda_i.subs(self.k_symbols[0], kx)
+            # ensure symbol consistency
+            lambda_i = lambda_i.subs(self.k_symbols[1], ky)
+            # ensure symbol consistency
+            lambda_i = lambda_i.subs(self.k_symbols[2], kz)
             contrib = 0
             for pole in poles_i:
                 if a == sp.sign(sp.im(pole)):
@@ -234,34 +257,40 @@ class GreensFunctionCalculator:
                     residue = numerator / denom.subs(kz, pole)
                     contrib += residue
                     has_contributions = True
-            
+
             if self.verbose:
                 print(f"\nλ_{i}(k) = {lambda_i}")
                 print(f"  Poles: {poles_i}")
                 print(f"  Contribution to residue sum: {contrib}")
-            
+
             G_z_diag.append(sp.I * contrib)
 
         if not has_contributions:
             if self.verbose:
-                print("No residues contributed — returning zero matrix.")
+                print("No poles passed the sign check; returning zero Green's function.")
             return sp.zeros(len(self.I))
 
-        if all(val == sp.S(0) for val in G_z_diag):
-            warnings.warn("Green's function is identically zero even though there are contributing poles.")
-        
+        if all(val.equals(0) for val in G_z_diag):
+            warnings.warn(
+                "Green's function is identically zero: all residue contributions canceled.")
+
         G_z = sp.diag(*G_z_diag)
         # Note: Currently returning only diagonal Green's function G(z, z′)
-        # Full matrix reconstruction from eigenbasis could be added later if needed.
+        # Full matrix reconstruction from eigenbasis can be added if needed:
+        if full_matrix:
+            eigenbasis, _, _ = self.compute_eigen_greens_inverse(kvec)
+            G_full = eigenbasis @ G_z @ invert_matrix(eigenbasis)
+            return G_full
+
         return G_z
-    
+
     # --- Internal utilities ---
 
     @staticmethod
     def _extract_valid_poles_from_root_solutions(root_solutions):
         """
         Extract valid poles from the output of compute_roots_greens_inverse.
-        
+
         Returns:
             List[List[sp.Basic]]: One list per eigenvalue, containing its poles.
         """
@@ -278,4 +307,3 @@ class GreensFunctionCalculator:
             poles_per_lambda.append(poles)
 
         return poles_per_lambda
-
