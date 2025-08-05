@@ -283,6 +283,12 @@ class GreensFunctionCalculator:
             return G_full
 
         return G_z
+    
+    def compute_rspace_greens_numeric_1D(self): #placeholder for now
+        if self.symbolic:
+            warnings.warn(
+                "Numeric 1D G(z,z') computation is not supported in symbolic mode. Disable: symbolic=False.")
+            return []
 
     # --- Internal utilities ---
 
