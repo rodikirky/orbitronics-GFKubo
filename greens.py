@@ -42,7 +42,7 @@ class GreensFunctionCalculator:
         self.k_symbols = sp.symbols("k_x k_y k_z", real=True)
         """
         Canonical momentum symbols used internally for solving:
-        k_symbols[0] = k_x, k_symbols[1] = k_y, k_symbols[2] = k_z
+        k_symbols[0] = "k_x", k_symbols[1] = "k_y", k_symbols[2] = "k_z"
         Only relevant for symbolic mode.
         """
 
@@ -207,6 +207,9 @@ class GreensFunctionCalculator:
         Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem,
         assuming translational invariance in x and y. Only diagonal entries are returned in default mode. 
         If full matrix in the original basis is needed, enable full_matrix=True.
+
+        Returns:
+        - sp.Matrix: symbolic Green's function matrix in real space.
         """
 
         if not self.symbolic:
@@ -220,14 +223,14 @@ class GreensFunctionCalculator:
         q = self.q
         assert sp.simplify(z).is_real and sp.simplify(
             z_prime).is_real, "Both z and z′ must be real symbols or numbers"
-        a = q  # default assumption: a=z-z'>0 for retarded GF and a<0 for advanced GF
+        z_diff_sign = q  # default assumption: z-z'>0 for retarded GF and z<z' for advanced GF
 
         if not isinstance(z, sp.Symbol):
             assert not isinstance(
                 z_prime, sp.Symbol), "Expected z' to be a real number, not a symbol."
             z = float(z)
             z_prime = float(z_prime)
-            a = sp.sign(z - z_prime)
+            z_diff_sign = int(sp.sign(z - z_prime))
         else:
             assert isinstance(
                 z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
@@ -239,24 +242,13 @@ class GreensFunctionCalculator:
 
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
-        G_z_diag = []
+        G_z_diag = [] # List for the diagonal entries of G(z,z'), each the solution of an integral
         has_contributions = False
         for i, (lambda_i, poles_i) in enumerate(zip(eigenvalues, poles_per_lambda)):
             lambda_i = sp.factor(lambda_i, extension=True)
             # ensure symbol consistency
-            lambda_i = lambda_i.subs(self.k_symbols[0], kx)
-            # ensure symbol consistency
-            lambda_i = lambda_i.subs(self.k_symbols[1], ky)
-            # ensure symbol consistency
-            lambda_i = lambda_i.subs(self.k_symbols[2], kz)
-            contrib = 0
-            for pole in poles_i:
-                if a == sp.sign(sp.im(pole)):
-                    numerator = sp.exp(sp.I * pole * (z - z_prime))
-                    denom = sp.simplify(lambda_i / (kz - pole))
-                    residue = numerator / denom.subs(kz, pole)
-                    contrib += residue
-                    has_contributions = True
+            lambda_i = lambda_i.subs(dict(zip(self.k_symbols, [kx, ky, kz])))
+            contrib, has_contributions = self._residue_sum_for_lambda(lambda_i, poles_i, z, z_prime, kz, z_diff_sign, has_contributions)
 
             if self.verbose:
                 print(f"\nλ_{i}(k) = {lambda_i}")
@@ -266,8 +258,7 @@ class GreensFunctionCalculator:
             G_z_diag.append(sp.I * contrib)
 
         if not has_contributions:
-            if self.verbose:
-                print("No poles passed the sign check; returning zero Green's function.")
+            warnings.warn("No poles passed the sign check; returning zero Green's function.")
             return sp.zeros(len(self.I))
 
         if all(val.equals(0) for val in G_z_diag):
@@ -313,3 +304,32 @@ class GreensFunctionCalculator:
             poles_per_lambda.append(poles)
 
         return poles_per_lambda
+    
+    def _residue_sum_for_lambda(self, lambda_i, poles_i, z, z_prime, kz_sym, z_diff_sign, has_contributions: bool):
+        """
+        Compute the residue sum for a single diagonal entry (lambda_i) of the Green's function.
+
+        Parameters:
+        - lambda_i: the i-th diagonal entry of G⁻¹(k)
+        - poles_i: list of symbolic poles for that lambda_i
+        - z, z_prime: real-space coordinates
+        - kz_sym: the symbolic kz variable
+        - z_diff_sign: sign(z - z') used for selecting poles
+        - has_contributions: ensures there have previously been contributions
+
+        Returns:
+        - The total residue contribution for that diagonal element.
+        - has_contributions: updated, if so, otherwise unchanged
+        """
+        contrib = 0
+        for pole in poles_i:
+            if z_diff_sign == sp.sign(sp.im(pole)):
+                numerator = sp.exp(sp.I * pole * (z - z_prime))
+                denom = sp.simplify(lambda_i / (kz_sym - pole))
+                residue = numerator / denom.subs(kz_sym, pole)
+                contrib += residue
+                has_contributions = True
+            elif self.verbose:
+                print(f"Pole k_z = {pole} lies in the wrong half-plane and does not contribute.")
+        return contrib, has_contributions
+
