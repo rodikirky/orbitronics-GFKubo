@@ -127,10 +127,11 @@ class GreensFunctionCalculator:
         - eigenvalues of G⁻¹(k)
         - G⁻¹(k) diagonalized
         """
-        symbolic = self.symbolic
-        k = sanitize_vector(momentum, symbolic=symbolic)
+        if len(momentum) != self.d:
+            raise ValueError(f"Expected momentum of dimension {self.d}, got {len(momentum)}")
+        kvec = sanitize_vector(momentum, symbolic=self.symbolic)
 
-        H_k = self.H(k)  # Hamiltonian at k
+        H_k = self.H(kvec)  # Hamiltonian at k
         omega_I = self.omega * self.I  # Frequency term scaled identity
         i_eta = (sp.I if self.symbolic else 1j) * self.eta * \
             self.I  # Imaginary part for broadening
