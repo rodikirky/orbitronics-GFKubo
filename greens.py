@@ -2,7 +2,7 @@ import numpy as np
 import sympy as sp
 from sympy import solveset, S, pprint
 from typing import Callable, Union, Optional
-from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
+from utils import invert_matrix, print_symbolic_matrix, sanitize_vector, get_identity
 import warnings
 
 
@@ -42,10 +42,12 @@ class GreensFunctionCalculator:
 
         # Choice of dimension determines default momentum symbols:
         self.d = dimension
+        if not self.I == get_identity(size=self.d, symbolic=self.symbolic):
+            raise ValueError("Input identity {self.I} does not have dimension {self.d}.")
         if self.d not in {1,2,3}:
             raise ValueError("Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
         if self.d == 1:
-            self.k_symbols = sp.symbols("k", real=True)
+            self.k_symbols = [sp.symbols("k", real=True)]
         elif self.d in {2,3}:
             counter = self.d - 1
             self.k_symbols = sp.symbols(" ".join(f"k_{d}" for d in "xyz"[:counter]), real=True)
@@ -172,7 +174,7 @@ class GreensFunctionCalculator:
         Those poles correspond to the dispersion relations defining the band structure of the material.
 
        Parameters:
-        - solve_for: Integer index (0 for k_x, 1 for k_y, 2 for k_z), or None to solve for all simultaneously.
+        - solve_for: Integer index (e.g., 0 for k₁), or None to solve for all momentum components simultaneously.
 
         Returns:
         - List of (label, solution) tuples, where each label is "lambda_i=0" for the i-th eigenvalue,
@@ -180,24 +182,24 @@ class GreensFunctionCalculator:
             * a symbolic solution set (FiniteSet or ConditionSet), or
             * an error message if solving fails.
         """
-        if solve_for is not None:
-            if solve_for not in {0, 1, 2}:
-                raise ValueError(
-                    f"'solve_for' must be one of {{0, 1, 2}} "
-                    f"corresponding to k_x, k_y, or k_z. Got: {solve_for}"
-                )
-            solve_for_symbol = self.k_symbols[solve_for]
-        else:
-            solve_for_symbol = None
-
         if not self.symbolic:
             warnings.warn(
                 "Root solving is only supported in symbolic mode. Enable symbolic=True.")
             return []
+        assert len(self.k_symbols) == self.d
 
-        # Define symbolic momentum components
-        kx, ky, kz = self.k_symbols
-        k = self.k_symbols
+        if solve_for is not None:
+            if not (0 <= solve_for < self.d):
+                valid_indices = ", ".join(str(i) for i in range(self.d))
+                raise ValueError(
+                    f"'solve_for' must be one of {{{valid_indices}}} for a {self.d}D system. Got: {solve_for}"
+                )
+            variable_to_solve_for = self.k_symbols[solve_for]
+        else:
+            variable_to_solve_for = None
+
+        # Define symbolic momentum components 
+        k = sp.Matrix(self.k_symbols) # e.g., Matrix([k_x, k_y, k_z]) or fewer
 
         # Compute eigenvalues of the inverse Green's function
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(k)
@@ -212,16 +214,20 @@ class GreensFunctionCalculator:
         for i, lambda_i in enumerate(eigenvalues):
             # simplify for readability and solving
             lambda_i = sp.simplify(lambda_i)
-            if not lambda_i.is_polynomial(solve_for_symbol):
+            if lambda_i.free_symbols.isdisjoint(set(self.k_symbols)):
+                # Skip solving or return empty solution set
+                root_solutions.append((f"lambda_{i}=0", sp.FiniteSet()))
+                continue
+
+            if not lambda_i.is_polynomial(variable_to_solve_for):
                 warnings.warn(
-                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {solve_for_symbol}.", stacklevel=2)
+                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {variable_to_solve_for}.", stacklevel=2)
 
             try:
                 # Solve λ_i(k) = 0 for specified variable or for full vector
-                variable_to_solve = solve_for_symbol if solve_for_symbol is not None else (
-                    kx, ky, kz)
+                variable = variable_to_solve_for if variable_to_solve_for is not None else tuple(self.k_symbols)
                 sol = solveset(sp.Eq(lambda_i, 0),
-                               variable_to_solve, domain=S.Reals)
+                               variable, domain=S.Reals)
                 root_solutions.append((f"lambda_{i}=0", sol))
             except Exception as e:
                 root_solutions.append(
@@ -231,13 +237,16 @@ class GreensFunctionCalculator:
 
     # --- Fourier transformation to real space ---
 
-    def compute_rspace_greens_symbolic_1d(self,
-                                          z: Union[float, sp.Basic],
-                                          z_prime: Union[float, sp.Basic],
-                                          full_matrix: bool = False):
+    def compute_rspace_greens_symbolic_1d_along_last_dim(self,
+                                                         z: Union[float, sp.Basic],
+                                                         z_prime: Union[float, sp.Basic],
+                                                         full_matrix: bool = False):
         """
         Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem,
-        assuming translational invariance in x and y. Only diagonal entries are returned in default mode. 
+        assuming translational invariance in x and y in a 3D system. In 1D and 2D, z and z' here refer
+        to the last dimension, i.e. "z" = x_2 = y in 2D.
+        Performs 1D inverse Fourier transform along the last spatial dimension (e.g., k_z in 3D, k_y in 2D, or kin 1D).
+        Only diagonal entries are returned in default mode. 
         If full matrix in the original basis is needed, enable full_matrix=True.
 
         Returns:
@@ -248,9 +257,13 @@ class GreensFunctionCalculator:
             warnings.warn(
                 "Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.")
             return []
+        assert self.d >= 1, "Cannot perform real-space transform in zero-dimensional system."
 
-        kvec = self.k_symbols
-        kx, ky, kz = self.k_symbols
+        if self.verbose:
+            print(f"\nPerforming 1D Fourier transform in dimension {self.d - 1} over variable {k_dir}.")
+
+        kvec = sp.Matrix(self.k_symbols)
+        k_dir = self.k_symbols[self.d - 1]  # direction of real-space transform (last component)
 
         q = self.q
         assert sp.simplify(z).is_real and sp.simplify(
@@ -278,9 +291,7 @@ class GreensFunctionCalculator:
         has_contributions = False
         for i, (lambda_i, poles_i) in enumerate(zip(eigenvalues, poles_per_lambda)):
             lambda_i = sp.factor(lambda_i, extension=True)
-            # ensure symbol consistency
-            lambda_i = lambda_i.subs(dict(zip(self.k_symbols, [kx, ky, kz])))
-            contrib, has_contributions = self._residue_sum_for_lambda(lambda_i, poles_i, z, z_prime, kz, z_diff_sign, has_contributions)
+            contrib, has_contributions = self._residue_sum_for_lambda(lambda_i, poles_i, z, z_prime, k_dir, z_diff_sign, has_contributions)
 
             if self.verbose:
                 print(f"\nλ_{i}(k) = {lambda_i}")
@@ -362,6 +373,6 @@ class GreensFunctionCalculator:
                 contrib += residue
                 has_contributions = True
             elif self.verbose:
-                print(f"Pole k_z = {pole} lies in the wrong half-plane and does not contribute.")
+                print(f"Pole {kz_sym} = {pole} lies in the wrong half-plane and does not contribute.")
         return contrib, has_contributions
 
