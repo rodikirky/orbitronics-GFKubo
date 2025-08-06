@@ -19,6 +19,7 @@ class GreensFunctionCalculator:
                  retarded: bool = True,
                  # defaults to non-verbose
                  # if verbose=True, intermediate steps will be printed out
+                 dimension: int = 3,
                  verbose: bool = False):
         """
         A calculator for Green's functions.
@@ -39,7 +40,16 @@ class GreensFunctionCalculator:
         self.eta = infinitestimal
         self.q = 1 if retarded else -1
 
-        self.k_symbols = sp.symbols("k_x k_y k_z", real=True)
+        # Choice of dimension determines default momentum symbols:
+        self.d = dimension
+        if self.d == 1:
+            self.k_symbols = sp.symbols("k", real=True)
+        elif self.d in {1,2}:
+            self.k_symbols = sp.symbols(" ".join(f"k_{d}" for d in "xyz"[:self.d]), real=True)
+        else:
+            warnings.warn(
+                "Class support only 1D, 2D and 3D computation. Choose dimension from {1,2,3}.")
+
         """
         Canonical momentum symbols used internally for solving:
         k_symbols[0] = "k_x", k_symbols[1] = "k_y", k_symbols[2] = "k_z"
