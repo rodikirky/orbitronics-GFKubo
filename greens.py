@@ -42,13 +42,13 @@ class GreensFunctionCalculator:
 
         # Choice of dimension determines default momentum symbols:
         self.d = dimension
+        if self.d not in {1,2,3}:
+            raise ValueError("Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
         if self.d == 1:
             self.k_symbols = sp.symbols("k", real=True)
-        elif self.d in {1,2}:
-            self.k_symbols = sp.symbols(" ".join(f"k_{d}" for d in "xyz"[:self.d]), real=True)
-        else:
-            warnings.warn(
-                "Class support only 1D, 2D and 3D computation. Choose dimension from {1,2,3}.")
+        elif self.d in {2,3}:
+            counter = self.d - 1
+            self.k_symbols = sp.symbols(" ".join(f"k_{d}" for d in "xyz"[:counter]), real=True)
 
         """
         Canonical momentum symbols used internally for solving:
@@ -83,6 +83,10 @@ class GreensFunctionCalculator:
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
         (omega ± i*eta - H(k)).
         """
+        # Ensure correct momentum dimensionality
+        if len(momentum) != self.d:
+            raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
+
         H_k = self.H(momentum)  # Hamiltonian at k
         omega_I = self.omega * self.I  # Frequency term scaled identity
         i_eta = (sp.I if self.symbolic else 1j) * self.eta * \
