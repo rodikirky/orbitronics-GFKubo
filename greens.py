@@ -37,7 +37,7 @@ class GreensFunctionCalculator:
         self.I = identity
         # validate identity
         if not (hasattr(self.I, "shape") and self.I.shape[0] == self.I.shape[1]):
-            raise ValueError("Identity must be a square matrix.")
+            raise ValueError(f"Identity must be a square matrix.")
         self.N = int(self.I.shape[0]) # band size, e.g., 2 for spin-1/2 systems
 
         self.symbolic = symbolic
@@ -48,7 +48,7 @@ class GreensFunctionCalculator:
         # Choice of dimension determines default momentum symbols:
         self.d = dimension
         if self.d not in {1,2,3}:
-            raise ValueError("Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
+            raise ValueError(f"Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
         if self.d == 1:
             self.k_symbols = [sp.symbols("k", real=True)]
         elif self.d in {2,3}:
@@ -93,6 +93,11 @@ class GreensFunctionCalculator:
             raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
 
         H_k = self.H(momentum)  # Hamiltonian at k
+        # convert to backend-specific matrix/array
+        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k)
+        if H_k.shape != (self.N, self.N):
+            raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+
         omega_I = self.omega * self.I  # Frequency term scaled identity
         i_eta = (sp.I if self.symbolic else 1j) * self.eta * \
             self.I  # Imaginary part for broadening
@@ -137,6 +142,11 @@ class GreensFunctionCalculator:
         kvec = sanitize_vector(momentum, symbolic=self.symbolic)
 
         H_k = self.H(kvec)  # Hamiltonian at k
+        # convert to backend-specific matrix/array
+        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k)
+        if H_k.shape != (self.N, self.N):
+            raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+
         omega_I = self.omega * self.I  # Frequency term scaled identity
         i_eta = (sp.I if self.symbolic else 1j) * self.eta * \
             self.I  # Imaginary part for broadening
