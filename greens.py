@@ -46,14 +46,18 @@ class GreensFunctionCalculator:
         self.q = 1 if retarded else -1
 
         # Choice of dimension determines default momentum symbols:
-        self.d = dimension
-        if self.d not in {1,2,3}:
+        self.d = int(dimension)
+        if self.d not in (1, 2, 3):
             raise ValueError(f"Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
-        if self.d == 1:
-            self.k_symbols = [sp.symbols("k", real=True)]
-        elif self.d in {2,3}:
-            counter = self.d - 1
-            self.k_symbols = sp.symbols(" ".join(f"k_{d}" for d in "xyz"[:counter]), real=True)
+        if self.symbolic:
+            names = ["k"] if self.d == 1 else [f"k_{ax}" for ax in "xyz"[:self.d]]
+            self.k_symbols = sp.symbols(" ".join(names), real=True)
+            # For consistency in code paths, make it indexable like a list
+            if isinstance(self.k_symbols, sp.Symbol):
+                self.k_symbols = [self.k_symbols]
+        else:
+            # numeric path: you still need the length for checks
+            self.k_symbols = [None] * self.d
 
         """
         Canonical momentum symbols used internally for solving:
