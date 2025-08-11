@@ -242,15 +242,20 @@ class GreensFunctionCalculator:
                                                          z_prime: Union[float, sp.Basic],
                                                          full_matrix: bool = False):
         """
-        Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem,
-        assuming translational invariance in x and y in a 3D system. In 1D and 2D, z and z' here refer
-        to the last dimension, i.e. "z" = x_2 = y in 2D.
-        Performs 1D inverse Fourier transform along the last spatial dimension (e.g., k_z in 3D, k_y in 2D, or kin 1D).
+        Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem.
+
+        Assumes translational invariance in all but the last spatial dimension, performing a 1D Fourier 
+        transform along k_{d-1}. Supports 1D, 2D, and 3D systems.
+        
         Only diagonal entries are returned in default mode. 
         If full matrix in the original basis is needed, enable full_matrix=True.
 
+        Parameters:
+        - z, z′: Real or real symbolic coordinates along the last spatial dimension.
+        - full_matrix: If True, reconstruct the full Green's function matrix (not just the diagonal).
+
         Returns:
-        - sp.Matrix: symbolic Green's function matrix in real space.
+        - G(z, z′): The symbolic real-space Green's function matrix.
         """
 
         if not self.symbolic:
@@ -259,11 +264,11 @@ class GreensFunctionCalculator:
             return []
         assert self.d >= 1, "Cannot perform real-space transform in zero-dimensional system."
 
-        if self.verbose:
-            print(f"\nPerforming 1D Fourier transform in dimension {self.d - 1} over variable {k_dir}.")
-
         kvec = sp.Matrix(self.k_symbols)
         k_dir = self.k_symbols[self.d - 1]  # direction of real-space transform (last component)
+        
+        if self.verbose:
+            print(f"\nPerforming 1D Fourier transform in {self.d} dimensions over variable {k_dir}.")
 
         q = self.q
         assert sp.simplify(z).is_real and sp.simplify(
@@ -281,7 +286,7 @@ class GreensFunctionCalculator:
                 z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
 
         # solve_for = 2 means we solve for k_z = self.k_symbols[2]
-        root_sets = self.compute_roots_greens_inverse(solve_for=2)
+        root_sets = self.compute_roots_greens_inverse(solve_for=self.d - 1)
         poles_per_lambda = self._extract_valid_poles_from_root_solutions(
             root_sets)
 
@@ -350,20 +355,23 @@ class GreensFunctionCalculator:
     
     def _residue_sum_for_lambda(self, lambda_i, poles_i, z, z_prime, kz_sym, z_diff_sign, has_contributions: bool):
         """
-        Compute the residue sum for a single diagonal entry (lambda_i) of the Green's function.
+        Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
+        This method of calculating the residue is based on the assumption that the diagonal
+        entries λᵢ(k) of G⁻¹(k) are polynomials in the integration variable (e.g. λᵢ(k_z)= (k_z)^2/(2m)).
 
         Parameters:
-        - lambda_i: the i-th diagonal entry of G⁻¹(k)
-        - poles_i: list of symbolic poles for that lambda_i
-        - z, z_prime: real-space coordinates
-        - kz_sym: the symbolic kz variable
-        - z_diff_sign: sign(z - z') used for selecting poles
-        - has_contributions: ensures there have previously been contributions
+        - lambda_i: Diagonal entry λᵢ(k) of G⁻¹(k). Must be polynomial in the integration variable!
+        - poles_i: Valid poles of λᵢ
+        - z, z′: Coordinates in real space (must be real-valued or symbolic real)
+        - kz_sym: Momentum variable to integrate over (e.g., k_z)
+        - z_diff_sign: Determines correct half-plane for the contour
+        - has_contributions: Tracks whether any pole has contributed
 
         Returns:
-        - The total residue contribution for that diagonal element.
-        - has_contributions: updated, if so, otherwise unchanged
+        - contrib: Total residue contribution to G_{ii}(z, z′)
+        - has_contributions: Updated flag
         """
+
         contrib = 0
         for pole in poles_i:
             if z_diff_sign == sp.sign(sp.im(pole)):
