@@ -102,29 +102,24 @@ class GreensFunctionCalculator:
         if H_k.shape != (self.N, self.N):
             raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
 
-        omega_I = self.omega * self.I  # Frequency term scaled identity
-        i_eta = (sp.I if self.symbolic else 1j) * self.eta * \
-            self.I  # Imaginary part for broadening
-        q = self.q  # q = 1 for retarded GF, q = -1 for advanced
-
-        tobe_inverted = omega_I + q * i_eta - H_k
-
         if self.symbolic:
-            # Ensure symbolic matrix for symbolic inversion
-            tobe_inverted = sp.Matrix(tobe_inverted)
+            H_k = sp.Matrix(H_k)
+            G_inv = (self.omega + self.q * self.eta * sp.I) * self.I - H_k
+            G_k = invert_matrix(G_inv, symbolic=True)
         else:
-            # Ensure numeric matrix for numeric inversion
-            tobe_inverted = np.array(tobe_inverted)
+            H_k = np.asarray(H_k, dtype=complex)
+            G_inv = (self.omega + self.q * self.eta * 1j) * self.I - H_k
+            G_k = invert_matrix(G_inv, symbolic=False)
 
         if self.verbose:
             print("\nComputing Green's function at k:")
             print("\nwith k = ", momentum)
             print_symbolic_matrix(
                 H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
-            print_symbolic_matrix(tobe_inverted, name="( ω ± iη - H(k) )") if self.symbolic else print(
-                "Inversion target =\n", tobe_inverted)
-
-        return invert_matrix(tobe_inverted, symbolic=self.symbolic)
+            print_symbolic_matrix(G_inv, name="( ω ± iη - H(k) )") if self.symbolic else print(
+                "Inversion target =\n", G_inv)
+        
+        return G_k
 
     # --- Analytical helpers ---
 
