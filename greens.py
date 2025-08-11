@@ -47,8 +47,6 @@ class GreensFunctionCalculator:
 
         # Choice of dimension determines default momentum symbols:
         self.d = dimension
-        if not self.I == get_identity(size=self.d, symbolic=self.symbolic):
-            raise ValueError("Input identity {self.I} does not have dimension {self.d}.")
         if self.d not in {1,2,3}:
             raise ValueError("Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
         if self.d == 1:
