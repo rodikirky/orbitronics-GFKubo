@@ -35,6 +35,11 @@ class GreensFunctionCalculator:
         """
         self.H = hamiltonian
         self.I = identity
+        # validate identity
+        if not (hasattr(self.I, "shape") and self.I.shape[0] == self.I.shape[1]):
+            raise ValueError("Identity must be a square matrix.")
+        self.N = int(self.I.shape[0]) # band size, e.g., 2 for spin-1/2 systems
+
         self.symbolic = symbolic
         self.omega = energy_level
         self.eta = infinitestimal
