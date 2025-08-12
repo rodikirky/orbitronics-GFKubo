@@ -98,16 +98,14 @@ class GreensFunctionCalculator:
 
         H_k = self.H(momentum)  # Hamiltonian at k
         # convert to backend-specific matrix/array
-        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k)
+        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k, dtype=complex)
         if H_k.shape != (self.N, self.N):
             raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
 
         if self.symbolic:
-            H_k = sp.Matrix(H_k)
             G_inv = (self.omega + self.q * self.eta * sp.I) * self.I - H_k
             G_k = invert_matrix(G_inv, symbolic=True)
         else:
-            H_k = np.asarray(H_k, dtype=complex)
             G_inv = (self.omega + self.q * self.eta * 1j) * self.I - H_k
             G_k = invert_matrix(G_inv, symbolic=False)
 
