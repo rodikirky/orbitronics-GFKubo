@@ -4,6 +4,7 @@ from sympy import solveset, S, pprint
 from typing import Callable, Union, Optional
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector, get_identity
 import warnings
+NUM_EIG_TOL = 1e-8  # reconstruction tolerance for eigen-decomp checks
 
 
 class GreensFunctionCalculator:
@@ -134,48 +135,130 @@ class GreensFunctionCalculator:
         - eigenvalues of G⁻¹(k)
         - G⁻¹(k) diagonalized
         """
+        # 1) momentum validation
         if len(momentum) != self.d:
-            raise ValueError(f"Expected momentum of dimension {self.d}, got {len(momentum)}")
-        kvec = sanitize_vector(momentum, symbolic=self.symbolic)
+            raise ValueError(f"Expected {self.d} momentum components, got {len(momentum)}.")
 
-        H_k = self.H(kvec)  # Hamiltonian at k
-        # convert to backend-specific matrix/array
-        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k)
+        # 2) H(k) build + shape check
+        H_k = self.H(momentum)
+        if self.symbolic:
+            H_k = sp.Matrix(H_k)
+        else:
+            H_k = np.asarray(H_k, dtype=complex)
+
         if H_k.shape != (self.N, self.N):
             raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
 
-        omega_I = self.omega * self.I  # Frequency term scaled identity
-        i_eta = (sp.I if self.symbolic else 1j) * self.eta * \
-            self.I  # Imaginary part for broadening
-        q = self.q  # q = 1 for retarded GF, q = -1 for advanced
-
+        # 3) G^{-1}(k)
         if self.symbolic:
-            # Form the symbolic inverse Green's function
-            G_inv = sp.Matrix(omega_I + q * i_eta - H_k)
+            G_inv = (self.omega + self.q * self.eta * sp.I) * self.I - H_k
+        else:
+            G_inv = (self.omega + self.q * self.eta * 1j) * self.I - H_k
 
-            # Diagonalize: G⁻¹ = P D P⁻¹
-            eigenbasis, G_inv_diag = G_inv.diagonalize()
-            G_inv_diag = sp.Matrix(G_inv_diag)
-            eigenvalues = G_inv_diag.diagonal()
+        # 4) Eigendecomposition
+        if self.symbolic:
+            evects = G_inv.eigenvects()
+            pairs = []
+            for lam, mult, vecs in evects:
+                for v in vecs:
+                    v = sp.Matrix(v)
+                    if v.norm() != 0:
+                        v = v / v.norm()
+                    pairs.append((sp.simplify(lam), v))
 
-            # Sanity check: construct diagonal matrix from original form by basis change
-            G_inv_diagonalized = sp.simplify(invert_matrix(
-                eigenbasis, symbolic=self.symbolic) @ G_inv @ eigenbasis)
-            assert G_inv_diag.equals(
-                G_inv_diagonalized), "Expected diagonalized matrix to be diagonal and to have the eigenvalues on the diagonal."
+            if len(pairs) != self.N:
+                raise ValueError("G^{-1}(k) is not diagonalizable: insufficient eigenvectors.")
+
+            def _lam_key(l):
+                return (sp.re(l), sp.im(l))
+            # Sorting by real part first, imaginary part second gives a fixed, reproducible order
+            pairs.sort(key=lambda t: _lam_key(t[0]))
+
+            eigenvalues = [lam for lam, _ in pairs]
+            P = sp.Matrix.hstack(*[v for _, v in pairs])
+
+            try:
+                P_inv = P.inv()
+            except Exception:
+                raise ValueError("G^{-1}(k) is not diagonalizable: eigenbasis is singular.")
+
+            D = sp.diag(*eigenvalues)
+
+            # --- Consistency check: D_direct (from eigenvalues) vs D_reconstructed (P^{-1} G^{-1} P)
+            D_recon = sp.simplify(P_inv * G_inv * P)
+
+            # (1) Off-diagonals must vanish exactly (or simplify to zero)
+            offdiag = D_recon - sp.diag(*[D_recon[i, i] for i in range(self.N)])
+            if not offdiag.equals(sp.zeros(self.N)):
+                if not sp.simplify(offdiag).is_zero_matrix:
+                    raise ValueError("Eigendecomposition inconsistency: off-diagonal terms remain in P^{-1} G^{-1} P.")
+
+            # (2) Diagonals must match eigenvalues (after simplification)
+            for i in range(self.N):
+                diff = sp.simplify(D_recon[i, i] - D[i, i])
+                # equals(0) can be None; also try is_zero/simplify to be safe
+                if not (diff.equals(0) or diff.is_zero):
+                    raise ValueError("Eigendecomposition inconsistency: diagonal of P^{-1} G^{-1} P does not match eigenvalues.")
+
+            if self.verbose:
+                print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
+                for i, lam in enumerate(eigenvalues):
+                    print(f"λ[{i}] = {sp.simplify(lam)}")
+
+            residual = (P * D * P_inv - G_inv)
+            if not residual.equals(sp.zeros(self.N)):
+                if not sp.simplify(residual).is_zero_matrix:
+                    raise ValueError("Eigendecomposition failed: P*D*P^{-1} != G^{-1}(k).")
+
+            return P, eigenvalues, D
 
         else:
-            # Numerical case: use NumPy to obtain eigenvalues and eigenvectors
-            G_inv = np.array(omega_I + q * i_eta - H_k)
-            eigenvalues, eigenbasis = np.linalg.eig(G_inv)
-            # Simply put the eigenvalues on the diagonal
-            G_inv_diag = np.diag(eigenvalues)
+            vals, vecs = np.linalg.eig(G_inv)
+            # Sorting by real part first, imaginary part second gives a fixed, reproducible order
+            idx = np.lexsort((vals.imag, vals.real))
+            vals = vals[idx]
+            vecs = vecs[:, idx]
 
-            # Sanity check: construct diagonal matrix from original form by basis change
-            assert np.allclose(G_inv_diag, invert_matrix(eigenbasis, symbolic=self.symbolic)@G_inv@eigenbasis, rtol=1e-10), \
-                "Expected the diagonalized matrix to be diagonal."
+            P = np.array(vecs, dtype=complex)
+            condP = np.linalg.cond(P)
+            # optional warning:
+            if not np.isfinite(condP) or condP > 1e12:
+                warnings.warn(f"Ill-conditioned eigenbasis (cond={condP:.2e}). Results may be unstable.")
 
-        return eigenbasis, eigenvalues, G_inv_diag
+            P_inv = invert_matrix(P, symbolic=False)
+            D = np.diag(vals.astype(complex))
+
+            # --- Consistency check: D_direct vs D_reconstructed (up to numerical error)
+            D_recon = P_inv @ G_inv @ P
+
+            # (1) Off-diagonal energy should be ~0
+            offdiag = D_recon.copy()
+            np.fill_diagonal(offdiag, 0.0)
+            offdiag_norm = np.linalg.norm(offdiag)
+            if offdiag_norm > NUM_EIG_TOL:
+                raise ValueError(
+                    f"Eigendecomposition inconsistency: off-diagonal norm {offdiag_norm:.2e} exceeds {NUM_EIG_TOL:.1e}"
+                )
+
+            # (2) Diagonal entries should match eigenvalues within tolerance (order already enforced by sorting)
+            diag_diff = np.diag(D_recon) - np.diag(D)
+            rel_err = np.linalg.norm(diag_diff) / max(1.0, np.linalg.norm(np.diag(D)))
+            if rel_err > NUM_EIG_TOL:
+                raise ValueError(
+                    f"Eigendecomposition inconsistency: diagonal mismatch rel. error {rel_err:.2e} exceeds {NUM_EIG_TOL:.1e}"
+                )
+
+            if self.verbose:
+                print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
+                for i, lam in enumerate(vals):
+                    print(f"λ[{i}] = {lam}")
+
+            num = np.linalg.norm(P @ D @ P_inv - G_inv)
+            den = max(1.0, np.linalg.norm(G_inv))
+            if num / den > NUM_EIG_TOL:
+                raise ValueError("Eigendecomposition failed: reconstruction error above tolerance.")
+
+            return P, vals, D
 
     def compute_roots_greens_inverse(self, solve_for: Optional[int] = None):
         """
