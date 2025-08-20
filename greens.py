@@ -401,7 +401,12 @@ class GreensFunctionCalculator:
                 z_prime, sp.Symbol), "Expected z' to be a real number, not a symbol."
             z = float(z)
             z_prime = float(z_prime)
-            z_diff_sign = int(sp.sign(z - z_prime))
+            z_diff = z - z_prime
+            sig = int(sp.sign(z_diff))
+            if sig == 0:
+                sig = self.q  # default to retarded(+)/advanced(-) choice
+            z_diff_sign = sig
+
         else:
             assert isinstance(
                 z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
@@ -424,13 +429,29 @@ class GreensFunctionCalculator:
                 print(f"  Poles: {poles_i}")
                 print(f"  Contribution to residue sum: {contrib}")
 
-            G_z_diag.append(sp.I * contrib)
+            if lambda_i.is_polynomial(k_dir):
+                # Use residue theorem
+                if not poles_i:
+                    # no poles in chosen half-plane
+                    G_z_diag.append(0)
+                else:
+                    # sum over residues
+                    G_z_diag.append(sp.I * contrib)
+            else:
+                # Not polynomial (SymPy can’t reliably find poles)
+                warnings.warn(f"λ_{i} is not polynomial in k; returning unevaluated Fourier integral.")
+                expr = sp.Integral(sp.exp(sp.I * k_dir * (z - z_prime)) / sp.simplify(lambda_i),
+                                (k_dir, -sp.oo, sp.oo)) / (2*sp.pi)
+                has_contributions = True
+                if self.verbose:
+                    print(f"  Integral expression for G_{i}{i}(z, z′): {expr}")
+                G_z_diag.append(expr)
 
         if not has_contributions:
             warnings.warn("No poles passed the sign check; returning zero Green's function.")
             return sp.zeros(len(self.I))
 
-        if all(val.equals(0) for val in G_z_diag):
+        if all((val.is_zero is True) for val in G_z_diag):
             warnings.warn(
                 "Green's function is identically zero: all residue contributions canceled.")
 
@@ -492,6 +513,8 @@ class GreensFunctionCalculator:
         - contrib: Total residue contribution to G_{ii}(z, z′)
         - has_contributions: Updated flag
         """
+        if not lambda_i.is_polynomial(kz_sym):
+            return 0, has_contributions  # let caller trigger the Integral fallback
 
         contrib = 0
         for pole in poles_i:
