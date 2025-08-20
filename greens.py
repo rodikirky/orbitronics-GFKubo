@@ -42,6 +42,12 @@ class GreensFunctionCalculator:
         self.N = int(self.I.shape[0]) # band size, e.g., 2 for spin-1/2 systems
 
         self.symbolic = symbolic
+        # Ensure identity is in the correct format
+        if self.symbolic and isinstance(self.I, np.ndarray):
+            self.I = sp.Matrix(self.I)
+        elif not self.symbolic and isinstance(self.I, sp.MatrixBase):
+            self.I = np.asarray(np.array(self.I.tolist(), dtype=complex))
+
         self.omega = energy_level
         self.eta = infinitestimal
         self.q = 1 if retarded else -1
@@ -260,36 +266,45 @@ class GreensFunctionCalculator:
 
             return P, vals, D
 
-    def compute_roots_greens_inverse(self, solve_for: Optional[int] = None):
+    def compute_roots_greens_inverse(self, solve_for: int):
         """
-        Attempt to symbolically solve for the poles of the Green's function,
+        Solve for the poles (roots) of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
         Those poles correspond to the dispersion relations defining the band structure of the material.
+        Only single-variable solving is supported!
+        Numeric mode is not supported!
+        May return a COnditionSet instead of a FiniteSet if the eigenvalues are not a polynomial 
+        in the chosen variable.
 
-       Parameters:
-        - solve_for: Integer index (e.g., 0 for k₁), or None to solve for all momentum components simultaneously.
+        Parameters
+        ----------
+        solve_for : int
+        Index of the momentum component to solve for: 0..(d-1)
 
-        Returns:
-        - List of (label, solution) tuples, where each label is "lambda_i=0" for the i-th eigenvalue,
-          and solution is either:
-            * a symbolic solution set (FiniteSet or ConditionSet), or
-            * an error message if solving fails.
+        Returns
+        -------
+        List[Tuple[str, sp.Set]]
+            A list of (label, solution_set) pairs, one per eigenvalue λ_i, where the set contains the
+            solutions for k_{solve_for} in the complex domain. Non-polynomial cases may return a ConditionSet.
+
+        Raises
+        ------
+        TypeError
+            If called in numeric mode (symbolic=False) or if `solve_for` is not an int.
+        ValueError
+            If `solve_for` is out of range [0, d-1].
         """
         if not self.symbolic:
-            warnings.warn(
-                "Root solving is only supported in symbolic mode. Enable symbolic=True.")
-            return []
-        assert len(self.k_symbols) == self.d
+            raise TypeError("Root solving is only supported in symbolic mode. Enable symbolic=True.")
+        
+        # validate index
+        if not isinstance(solve_for, int):
+            raise TypeError(f"'solve_for' must be an int in [0, {self.d-1}] (k-dimension index).")
+        if solve_for < 0 or solve_for >= self.d:
+            valid_indices = ", ".join(str(i) for i in range(self.d))
+            raise ValueError(f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
 
-        if solve_for is not None:
-            if not (0 <= solve_for < self.d):
-                valid_indices = ", ".join(str(i) for i in range(self.d))
-                raise ValueError(
-                    f"'solve_for' must be one of {{{valid_indices}}} for a {self.d}D system. Got: {solve_for}"
-                )
-            variable_to_solve_for = self.k_symbols[solve_for]
-        else:
-            variable_to_solve_for = None
+        k_var = self.k_symbols[solve_for] # variable to solve for
 
         # Define symbolic momentum components 
         k = sp.Matrix(self.k_symbols) # e.g., Matrix([k_x, k_y, k_z]) or fewer
@@ -312,19 +327,32 @@ class GreensFunctionCalculator:
                 root_solutions.append((f"lambda_{i}=0", sp.FiniteSet()))
                 continue
 
-            if not lambda_i.is_polynomial(variable_to_solve_for):
+            if not lambda_i.is_polynomial(k_var):
                 warnings.warn(
-                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {variable_to_solve_for}.", stacklevel=2)
+                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {k_var}.", stacklevel=2)
 
             try:
-                # Solve λ_i(k) = 0 for specified variable or for full vector
-                variable = variable_to_solve_for if variable_to_solve_for is not None else tuple(self.k_symbols)
-                sol = solveset(sp.Eq(lambda_i, 0),
-                               variable, domain=S.Reals)
-                root_solutions.append((f"lambda_{i}=0", sol))
+                lam_simpl = sp.simplify(lambda_i)
+                try:
+                    # polynomial attempt
+                    poly = sp.Poly(lam_simpl, k_var, domain=sp.CC)
+                    if poly.total_degree() > 0:
+                        roots = poly.all_roots()
+                        solset = sp.FiniteSet(*roots)
+                    else:
+                        solset = sp.S.Complexes if lam_simpl == 0 else sp.EmptySet
+                except sp.PolynomialError:
+                    # general solve
+                    solset = sp.solveset(sp.Eq(lam_simpl, 0), k_var, domain=sp.S.Complexes)
+                    if isinstance(solset, sp.ConditionSet):
+                        warnings.warn(
+                            f"λ[{i}] is not polynomial in {k_var}; returning a ConditionSet.",
+                            stacklevel=2
+                        )
+                root_solutions.append((f"lambda_{i}=0", solset))
             except Exception as e:
-                root_solutions.append(
-                    (f"lambda_{i}=0", f"Error during solving: {e}"))
+                # fallback if something really unexpected happens
+                root_solutions.append((f"lambda_{i}=0", f"Error during solving: {e}"))
 
         return root_solutions
 
@@ -411,7 +439,7 @@ class GreensFunctionCalculator:
         # Full matrix reconstruction from eigenbasis can be added if needed:
         if full_matrix:
             eigenbasis, _, _ = self.compute_eigen_greens_inverse(kvec)
-            G_full = eigenbasis @ G_z @ invert_matrix(eigenbasis)
+            G_full = eigenbasis @ G_z @ invert_matrix(eigenbasis, symbolic=True)
             return G_full
 
         return G_z
