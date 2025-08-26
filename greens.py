@@ -411,41 +411,21 @@ class GreensFunctionCalculator:
             assert isinstance(
                 z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
 
-        # solve_for = 2 means we solve for k_z = self.k_symbols[2]
-        root_sets = self.compute_roots_greens_inverse(solve_for=self.d - 1)
-        poles_per_lambda = self._extract_valid_poles_from_root_solutions(
-            root_sets)
 
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
         G_z_diag = [] # List for the diagonal entries of G(z,z'), each the solution of an integral
         has_contributions = False
-        for i, (lambda_i, poles_i) in enumerate(zip(eigenvalues, poles_per_lambda)):
+
+        for i, lambda_i in enumerate(eigenvalues):
             lambda_i = sp.factor(lambda_i, extension=True)
-            contrib, has_contributions = self._residue_sum_for_lambda(lambda_i, poles_i, z, z_prime, k_dir, z_diff_sign, has_contributions)
+            contrib, contributed_any = self._residue_sum_for_lambda(lambda_i, z, z_prime, k_dir, z_diff_sign)
+            has_contributions = has_contributions or contributed_any
+            G_z_diag.append(contrib if contributed_any else 0)
 
             if self.verbose:
                 print(f"\nλ_{i}(k) = {lambda_i}")
-                print(f"  Poles: {poles_i}")
                 print(f"  Contribution to residue sum: {contrib}")
-
-            if lambda_i.is_polynomial(k_dir):
-                # Use residue theorem
-                if not poles_i:
-                    # no poles in chosen half-plane
-                    G_z_diag.append(0)
-                else:
-                    # sum over residues
-                    G_z_diag.append(sp.I * contrib)
-            else:
-                # Not polynomial (SymPy can’t reliably find poles)
-                warnings.warn(f"λ_{i} is not polynomial in k; returning unevaluated Fourier integral.")
-                expr = sp.Integral(sp.exp(sp.I * k_dir * (z - z_prime)) / sp.simplify(lambda_i),
-                                (k_dir, -sp.oo, sp.oo)) / (2*sp.pi)
-                has_contributions = True
-                if self.verbose:
-                    print(f"  Integral expression for G_{i}{i}(z, z′): {expr}")
-                G_z_diag.append(expr)
 
         if not has_contributions:
             warnings.warn("No poles passed the sign check; returning zero Green's function.")
@@ -472,30 +452,8 @@ class GreensFunctionCalculator:
             return []
 
     # --- Internal utilities ---
-
-    @staticmethod
-    def _extract_valid_poles_from_root_solutions(root_solutions):
-        """
-        Extract valid poles from the output of compute_roots_greens_inverse.
-
-        Returns:
-            List[List[sp.Basic]]: One list per eigenvalue, containing its poles.
-        """
-        poles_per_lambda = []
-
-        for label, solution in root_solutions:
-            if isinstance(solution, sp.FiniteSet):
-                poles = list(solution)
-            elif hasattr(solution, 'is_EmptySet') and solution.is_EmptySet:
-                poles = []
-            else:
-                # Could be a ConditionSet or error string; skip
-                poles = []
-            poles_per_lambda.append(poles)
-
-        return poles_per_lambda
     
-    def _residue_sum_for_lambda(self, lambda_i, poles_i, z, z_prime, kz_sym, z_diff_sign, has_contributions: bool):
+    def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
         This method of calculating the residue is based on the assumption that the diagonal
@@ -515,14 +473,25 @@ class GreensFunctionCalculator:
         - contrib: Total residue contribution to G_{ii}(z, z′)
         - has_contributions: Updated flag
         """
+        contributed_any = False
+        delta_z = z - z_prime
+        phase = sp.exp(sp.I * kz_sym * delta_z)
+
         if not lambda_i.is_polynomial(kz_sym):
-            return 0, has_contributions  # let caller trigger the Integral fallback
+            # Not polynomial (SymPy can’t reliably find poles)
+            # Triggers unevaluated integral fallback
+            warnings.warn(f"Eigenvalue is not polynomial in k; returning unevaluated Fourier integral.")
+            expr = sp.Integral(phase / sp.simplify(lambda_i),
+                            (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
+            contributed_any = True
+            if self.verbose:
+                print(f"  Unevaluated integral expression for G(k) diagonal entry: {expr}")
+            return expr, contributed_any 
 
         poly = sp.Poly(sp.simplify(lambda_i), kz_sym, domain=sp.CC)
         roots_with_mult = poly.roots()  # dict: {root: multiplicity}
-
-        delta_z = z - z_prime
-        phase = sp.exp(sp.I * kz_sym * delta_z)
+        if self.verbose:
+            print(f"  Found roots (with multiplicity) of eigenvalue {lambda_i}: {roots_with_mult}")
         
         contrib = 0
         for k0, m in roots_with_mult.items(): # roots k0 with their multiplicity m
@@ -542,7 +511,8 @@ class GreensFunctionCalculator:
                 res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
 
             contrib += res
-            has_contributions = True
+            contrib = sp.I * contrib  # factor of i from residue theorem
+            contributed_any = True
             
-        return contrib, has_contributions
+        return contrib, contributed_any
 
