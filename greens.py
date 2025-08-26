@@ -421,7 +421,6 @@ class GreensFunctionCalculator:
         has_contributions = False
 
         for i, lambda_i in enumerate(eigenvalues):
-            lambda_i = sp.factor(lambda_i, extension=True)
             contrib, contributed_any = self._residue_sum_for_lambda(lambda_i, z, z_prime, k_dir, z_diff_sign)
             has_contributions = has_contributions or contributed_any
             G_z_diag.append(contrib if contributed_any else 0)
