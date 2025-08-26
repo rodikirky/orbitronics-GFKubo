@@ -27,11 +27,12 @@ class GreensFunctionCalculator:
 
         Parameters:
         - hamiltonian: a function that takes momentum k and returns the Hamiltonian matrix
-        - identity: identity matrix (3x3) for the appropriate backend
+        - identity: identity matrix (NxN) for the appropriate backend, where N is the band size
         - symbolic: whether to use symbolic (sympy) or numeric (numpy) mode
         - energy_level: scalar ω
         - infinitestimal: small η > 0 to define the imaginary part
         - retarded: if True computes retarded Green's function; else advanced
+        - dimension: spatial dimension of the system (1, 2, or 3), defaults to 3
         - verbose: if True, prints intermediate matrix states for debugging
         """
         self.H = hamiltonian
@@ -273,7 +274,7 @@ class GreensFunctionCalculator:
         Those poles correspond to the dispersion relations defining the band structure of the material.
         Only single-variable solving is supported!
         Numeric mode is not supported!
-        May return a COnditionSet instead of a FiniteSet if the eigenvalues are not a polynomial 
+        May return a ConditionSet instead of a FiniteSet if the eigenvalues are not a polynomial 
         in the chosen variable.
 
         Parameters
@@ -372,8 +373,8 @@ class GreensFunctionCalculator:
         If full matrix in the original basis is needed, enable full_matrix=True.
 
         Parameters:
-        - z, z′: Real or real symbolic coordinates along the last spatial dimension.
-        - full_matrix: If True, reconstruct the full Green's function matrix (not just the diagonal).
+        - z, z′: Real numbers or real symbols; coordinates along the last spatial dimension.
+        - full_matrix: If True, reconstruct the full Green's function matrix in its original basis (not just the diagonal form).
 
         Returns:
         - G(z, z′): The symbolic real-space Green's function matrix.
@@ -409,9 +410,11 @@ class GreensFunctionCalculator:
 
         else:
             assert isinstance(
-                z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol."
+                z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol since z is one."
 
-
+        if self.verbose:
+            print("( ω ± iη - H(k) ) will be diagonalized to evaluate residues for the Fourier integral.")
+        
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
         G_z_diag = [] # List for the diagonal entries of G(z,z'), each the solution of an integral
@@ -445,11 +448,24 @@ class GreensFunctionCalculator:
 
         return G_z
     
-    def compute_rspace_greens_numeric_1D(self): #placeholder for now
+    def compute_rspace_greens_symbolic_1d(self, 
+                                          z: Union[float, sp.Basic],
+                                          z_prime: Union[float, sp.Basic],
+                                          full_matrix: bool = False):
+        # Wrapper for 1D real-space Green's function computation
+        # 1D refers to last dimension
+        return self.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime, full_matrix)
+    
+    def compute_rspace_greens_numeric_1D(self,
+                                         z: float,
+                                         z_prime: float,
+                                         full_matrix: bool = False): # placeholder function for later implementation
         if self.symbolic:
             warnings.warn(
                 "Numeric 1D G(z,z') computation is not supported in symbolic mode. Disable: symbolic=False.")
-            return []
+            
+        warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].")
+        return []
 
     # --- Internal utilities ---
     
