@@ -526,8 +526,7 @@ class GreensFunctionCalculator:
                 deriv = sp.diff(expr, (kz_sym, m - 1))
                 res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
 
-            contrib += res
-            contrib = sp.I * contrib  # factor of i from residue theorem
+            contrib += sp.I * res # factor of i from residue theorem
             contributed_any = True
             
         return contrib, contributed_any
