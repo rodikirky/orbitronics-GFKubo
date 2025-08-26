@@ -268,7 +268,7 @@ class GreensFunctionCalculator:
 
     def compute_roots_greens_inverse(self, solve_for: int):
         """
-        Solve for the poles (roots) of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
+        Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
         Those poles correspond to the dispersion relations defining the band structure of the material.
         Only single-variable solving is supported!
@@ -499,7 +499,9 @@ class GreensFunctionCalculator:
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
         This method of calculating the residue is based on the assumption that the diagonal
-        entries λᵢ(k) of G⁻¹(k) are polynomials in the integration variable (e.g. λᵢ(k_z)= (k_z)^2/(2m)).
+        entries λᵢ(k) of G⁻¹(k) are polynomials in the integration variable "kz_sym" (e.g. λᵢ(k_z)= (k_z)^2/(2m)).
+        Therefore, G(k) has poles at the roots of λᵢ(k). The multiplicity of those poles are taken into account.
+        Only poles in the correct half-plane (sign(im(k0)) == z_diff_sign) contribute.
 
         Parameters:
         - lambda_i: Diagonal entry λᵢ(k) of G⁻¹(k). Must be polynomial in the integration variable!
@@ -516,15 +518,31 @@ class GreensFunctionCalculator:
         if not lambda_i.is_polynomial(kz_sym):
             return 0, has_contributions  # let caller trigger the Integral fallback
 
+        poly = sp.Poly(sp.simplify(lambda_i), kz_sym, domain=sp.CC)
+        roots_with_mult = poly.roots()  # dict: {root: multiplicity}
+
+        delta_z = z - z_prime
+        phase = sp.exp(sp.I * kz_sym * delta_z)
+        
         contrib = 0
-        for pole in poles_i:
-            if z_diff_sign == sp.sign(sp.im(pole)):
-                numerator = sp.exp(sp.I * pole * (z - z_prime))
-                denom = sp.simplify(lambda_i / (kz_sym - pole))
-                residue = numerator / denom.subs(kz_sym, pole)
-                contrib += residue
-                has_contributions = True
-            elif self.verbose:
-                print(f"Pole {kz_sym} = {pole} lies in the wrong half-plane and does not contribute.")
+        for k0, m in roots_with_mult.items(): # roots k0 with their multiplicity m
+            # Half-plane selector
+            if z_diff_sign != sp.sign(sp.im(k0)):
+                if self.verbose:
+                    print(f"Pole k={k0} (multiplicity={m}) lies in wrong half-plane; skipped.")
+                continue
+
+            # Residue formula for pole of order m:
+            # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
+            expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
+            if m == 1:
+                res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
+            else:
+                deriv = sp.diff(expr, (kz_sym, m - 1))
+                res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
+
+            contrib += res
+            has_contributions = True
+            
         return contrib, has_contributions
 
