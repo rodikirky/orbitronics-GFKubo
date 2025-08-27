@@ -294,7 +294,8 @@ class GreensFunctionCalculator:
             If `solve_for` is out of range [0, d-1].
         """
         if not self.symbolic:
-            raise TypeError("Root solving is only supported in symbolic mode. Enable symbolic=True.")
+            warnings.warn("Root solving is only supported in symbolic mode. Enable symbolic=True.")
+            return []
         
         # validate index
         if not isinstance(solve_for, int):
@@ -334,7 +335,7 @@ class GreensFunctionCalculator:
                 lam_simpl = sp.simplify(lambda_i)
                 try:
                     # polynomial attempt
-                    poly = sp.Poly(lam_simpl, k_var, domain=sp.CC)
+                    poly = sp.Poly(lam_simpl, k_var, domain=sp.EX)
                     if poly.total_degree() > 0:
                         roots = poly.all_roots()
                         solset = sp.FiniteSet(*roots)
@@ -535,8 +536,7 @@ class GreensFunctionCalculator:
                 print(f"  Unevaluated integral expression for G(k) diagonal entry: {expr}")
             return expr, contributed_any 
 
-        poly = sp.Poly(sp.simplify(lambda_i), kz_sym, domain=sp.CC)
-        roots_with_mult = poly.roots()  # dict: {root: multiplicity}
+        roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)  # dict {root: multiplicity}
         if self.verbose:
             print(f"  Found roots (with multiplicity) of eigenvalue {lambda_i}: {roots_with_mult}")
         

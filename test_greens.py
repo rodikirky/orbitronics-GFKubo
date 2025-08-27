@@ -285,7 +285,7 @@ def test_invalid_solve_for_index_raises_value_error():
 
 def test_rspace_green_integrates_known_form():
     z, z_prime = sp.symbols("z z'", real=True)
-    eta = sp.symbols("eta", real=True)
+    eta = sp.symbols("eta", real=True, positive=True)
 
     def H(kvec):
         _, _, kz = kvec
@@ -328,7 +328,7 @@ def test_warns_when_integral_cannot_be_evaluated():
         assert any(expr.atoms(sp.Integral) for _, expr in result)
 
 def test_result_depends_on_difference_not_absolutes():
-    eta = sp.symbols("eta", real=True)
+    eta = sp.symbols("eta", real=True, positive=True)
 
     def H(kvec):
             _, _, kz = kvec
@@ -382,13 +382,13 @@ def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
         infinitestimal=1e-20,  # small eta
         verbose=False
     )
+    with pytest.warns(UserWarning, match="No poles passed"):
+        result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
+        _, G_expr = result[0]
 
-    result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
-    _, G_expr = result[0]
-
-    # Substitute values for z, z′ such that z < z′
-    val = G_expr.subs({z: 0, z_prime: 1}).evalf()
-    assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
+        # Substitute values for z, z′ such that z < z′
+        val = G_expr.subs({z: 0, z_prime: 1}).evalf()
+        assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
 
 # ────────────────────────────────
 # Verbose output
@@ -403,6 +403,7 @@ def test_numeric_verbose_output(capsys):
         symbolic=False,
         energy_level=1.0,
         infinitestimal=0.1,
+        dimension=2,
         verbose=True
     )
     
@@ -414,7 +415,7 @@ def test_numeric_verbose_output(capsys):
 
 def test_symbolic_verbose_output(capsys):
     def dummy_H(k): return sp.eye(2)
-    omega, eta = sp.symbols("omega eta", real=True)
+    omega, eta = sp.symbols("omega eta", real=True, positive=True)
     z, z_prime = sp.symbols("z z'", real=True)
 
     calculator = GreensFunctionCalculator(
@@ -423,18 +424,21 @@ def test_symbolic_verbose_output(capsys):
         symbolic=True,
         energy_level=omega,
         infinitestimal=eta,
+        dimension=2,
         verbose=True
     )
     
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
     calculator.compute_roots_greens_inverse(solve_for=0)
-    calculator.compute_rspace_greens_symbolic_1d(z, z_prime)
+    with pytest.warns(UserWarning, match="No poles"):
+        # There are no poles, so we expect a warning here
+        calculator.compute_rspace_greens_symbolic_1d(z, z_prime)
 
-    captured = capsys.readouterr()
-    assert "( ω ± iη - H(k) )" in captured.out
-    assert "eigenvalues" in captured.out
-    assert "Fourier transform" in captured.out
+        captured = capsys.readouterr()
+        assert "( ω ± iη - H(k) )" in captured.out
+        assert "eigenvalues" in captured.out
+        assert "Fourier transform" in captured.out
 
 # ────────────────────────────────
 # Error Handling
@@ -462,7 +466,7 @@ def test_numeric_noninvertible_matrix_raises():
         calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
 
 def test_symbolic_noninvertible_matrix_raises():
-    omega, eta = sp.symbols("omega eta", real=True)
+    omega, eta = sp.symbols("omega eta", real=True, positive=True)
 
     # We want: (omega + i*eta)I - H(k) == zero matrix
     # So set H(k) = (omega + i*eta)*I
@@ -493,10 +497,10 @@ def test_warns_in_numeric_mode_returns_empty_list():
         verbose=False
     )
 
-    with pytest.warns(UserWarning, match="only supported in symbolic mode"):
+    with pytest.warns(UserWarning, match="Enable symbolic=True."):
         roots = calc.compute_roots_greens_inverse(solve_for=0)
         assert roots == []
     
-    with pytest.warns(UserWarning, match="only supported in symbolic mode"):
+    with pytest.warns(UserWarning, match="Enable symbolic=True."):
         result = calc.compute_rspace_greens_symbolic_1d(sp.symbols("z"), sp.symbols("z'"))
         assert result == []
