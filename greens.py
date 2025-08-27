@@ -447,13 +447,47 @@ class GreensFunctionCalculator:
 
         return G_z
     
-    def compute_rspace_greens_symbolic_1d(self, 
-                                          z: Union[float, sp.Basic],
-                                          z_prime: Union[float, sp.Basic],
-                                          full_matrix: bool = False):
-        # Wrapper for 1D real-space Green's function computation
-        # 1D refers to last dimension
-        return self.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime, full_matrix)
+    def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
+        """
+        Wrapper around compute_rspace_greens_symbolic_1d_along_last_dim that
+        returns results in the legacy format expected by tests:
+        a list of (label, expression) tuples.
+
+        Parameters
+        ----------
+        z : float or sympy.Symbol
+            Position along the chosen 1D direction.
+        z_prime : float or sympy.Symbol
+            Reference position along the same direction.
+        full_matrix : bool, optional
+            If True, return the full Green's function matrix. If False, return
+            only the diagonal entries. Default is False.
+
+        Returns
+        -------
+        list of (str, sympy.Expr)
+            Tuples labeling each matrix element (e.g., "G_00") with its
+            corresponding expression.
+        """
+        G = self.compute_rspace_greens_symbolic_1d_along_last_dim(
+            z, z_prime, full_matrix=full_matrix
+        )
+
+        # If numeric mode: nothing implemented, return []
+        if isinstance(G, list):
+            return []
+
+        results = []
+        if full_matrix:
+            for i in range(G.shape[0]):
+                for j in range(G.shape[1]):
+                    results.append((f"G_{i}{j}", G[i, j]))
+        else:
+            for i in range(G.shape[0]):
+                results.append((f"G_{i}{i}", G[i, i]))
+
+        return results
+
     
     def compute_rspace_greens_numeric_1D(self,
                                          z: float,
