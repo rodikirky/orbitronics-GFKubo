@@ -22,10 +22,10 @@ def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
             raise ValueError("Matrix is not invertible (symbolic)")
         return matrix.inv()
     else:
-        if np.linalg.det(matrix) == 0:
-            raise ValueError("Matrix is not invertible (numeric)")
-        return np.linalg.inv(matrix)
-
+        try:
+            return np.linalg.inv(matrix)
+        except np.linalg.LinAlgError:
+            raise ValueError("Matrix is not invertible (numerically)")
 
 def hermitian_conjugate(matrix: Union[np.ndarray, sp.Matrix],
                         symbolic: bool) -> Union[np.ndarray, sp.Matrix]:

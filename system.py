@@ -112,7 +112,7 @@ class OrbitronicHamiltonianSystem:
             assert is_unitary(
                 U, symbolic=self.symbolic), "Basis must be unitary"
 
-            U_dagger = U.H if self.symbolic else np.linalg.inv(U)
+            U_dagger = U.H if self.symbolic else U.conj().T
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
 
             if self.verbose:

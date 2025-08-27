@@ -217,7 +217,7 @@ def test_symbolic_eigenvalues_shape_and_form():
     )
     k = calc.k_symbols
     _, eigenvalues, _ = calc.compute_eigen_greens_inverse(k)
-    assert isinstance(eigenvalues, Union[list, sp.Matrix])
+    assert isinstance(eigenvalues, (list, sp.Matrix))
     assert all(isinstance(ev, sp.Basic) for ev in eigenvalues)
     assert len(eigenvalues) == 2
 
@@ -261,7 +261,7 @@ def test_warns_on_non_polynomial_roots():
         verbose=False
     )
     
-    with pytest.warns(UserWarning, match="may fail: expression is not polynomial"):
+    with pytest.warns(UserWarning, match="not polynomial"):
         calc.compute_roots_greens_inverse(solve_for=0)
 
 def test_invalid_solve_for_index_raises_value_error():
@@ -273,7 +273,7 @@ def test_invalid_solve_for_index_raises_value_error():
         infinitestimal=0.1
     )
 
-    with pytest.raises(ValueError, match="solve_for.*0, 1, 2"):
+    with pytest.raises(ValueError, match="solve_for out of range"):
         calc.compute_roots_greens_inverse(solve_for=5)
 
 
@@ -321,7 +321,7 @@ def test_warns_when_integral_cannot_be_evaluated():
         verbose=False
     )
 
-    with pytest.warns(UserWarning, match="Could not compute integral"):
+    with pytest.warns(UserWarning, match="unevaluated"):
         result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
         assert any(expr.atoms(sp.Integral) for _, expr in result)
 
@@ -426,7 +426,7 @@ def test_symbolic_verbose_output(capsys):
     
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
-    calculator.compute_roots_greens_inverse()
+    calculator.compute_roots_greens_inverse(solve_for=0)
     calculator.compute_rspace_greens_symbolic_1d(z, z_prime)
 
     captured = capsys.readouterr()

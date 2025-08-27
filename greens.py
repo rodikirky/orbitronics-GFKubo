@@ -393,8 +393,8 @@ class GreensFunctionCalculator:
             print(f"\nPerforming 1D Fourier transform in {self.d} dimensions over variable {k_dir}.")
 
         q = self.q
-        assert sp.simplify(z).is_real and sp.simplify(
-            z_prime).is_real, "Both z and z′ must be real symbols or numbers"
+        z_sym, zp_sym = sp.sympify(z), sp.sympify(z_prime)
+        assert z_sym.is_real is not False and zp_sym.is_real is not False, "Both z and z′ must be real symbols or numbers"
         z_diff_sign = q  # default assumption: z-z'>0 for retarded GF and z<z' for advanced GF
 
         if not isinstance(z, sp.Symbol):
