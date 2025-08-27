@@ -176,10 +176,8 @@ class GreensFunctionCalculator:
             if len(pairs) != self.N:
                 raise ValueError("G^{-1}(k) is not diagonalizable: insufficient eigenvectors.")
 
-            def _lam_key(l):
-                return (sp.re(l), sp.im(l))
-            # Sorting by real part first, imaginary part second gives a fixed, reproducible order
-            pairs.sort(key=lambda t: _lam_key(t[0]))
+            # Sorting for a reproducible order
+            pairs.sort(key=lambda t: sp.default_sort_key(sp.simplify(t[0])))
 
             eigenvalues = [lam for lam, _ in pairs]
             P = sp.Matrix.hstack(*[v for _, v in pairs])

@@ -164,8 +164,8 @@ def test_numeric_retarded_vs_advanced():
     
     I = np.eye(2)
 
-    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True)
-    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False)
+    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True, dimension=2)
+    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False, dimension=2)
 
     momentum = np.array([0.0, 0.0]) # since H(k) is constant here, k does not actually matter
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
@@ -184,8 +184,8 @@ def test_symbolic_retarded_vs_advanced():
     
     I = sp.eye(2)
 
-    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=True)
-    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=False)
+    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=True, dimension=2)
+    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=False, dimension=2)
 
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
@@ -213,6 +213,7 @@ def test_symbolic_eigenvalues_shape_and_form():
         symbolic=True,
         energy_level=0,
         infinitestimal=0.1,
+        dimension=2,
         verbose=False
     )
     k = calc.k_symbols
@@ -238,6 +239,7 @@ def test_roots_return_expected_expressions():
         symbolic=True,
         energy_level=0,
         infinitestimal=0.0,
+        dimension=2,
         verbose=False
     )
     results = calc.compute_roots_greens_inverse(solve_for=0)
@@ -273,7 +275,7 @@ def test_invalid_solve_for_index_raises_value_error():
         infinitestimal=0.1
     )
 
-    with pytest.raises(ValueError, match="solve_for out of range"):
+    with pytest.raises(ValueError, match="out of range"):
         calc.compute_roots_greens_inverse(solve_for=5)
 
 
