@@ -15,7 +15,7 @@ class GreensFunctionCalculator:
                  # omega
                  energy_level: Union[float, sp.Basic],
                  # eta
-                 infinitestimal: float,
+                 broadening: float,
                  # defaults to retarded Green's functions
                  retarded: bool = True,
                  # defaults to non-verbose
@@ -50,7 +50,7 @@ class GreensFunctionCalculator:
             self.I = np.asarray(np.array(self.I.tolist(), dtype=complex))
 
         self.omega = energy_level
-        self.eta = infinitestimal
+        self.eta = broadening
         self.q = 1 if retarded else -1
 
         # Choice of dimension determines default momentum symbols:
@@ -82,15 +82,16 @@ class GreensFunctionCalculator:
         """
         print("\nGreensFunctionCalculator configuration:")
         print("======================================")
-        print(f"Symbolic mode         : {self.symbolic}")
-        print(f"Verbose mode          : {self.verbose}")
-        print(f"Energy ω              : {self.omega}")
-        print(f"Infinitesimal η       : {self.eta}")
+        print(f"Symbolic mode              : {self.symbolic}")
+        print(f"Verbose mode               : {self.verbose}")
+        print(f"Energy ω                   : {self.omega}")
+        print(f"Infinitesimal broadening η : {self.eta}")
         green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
-        print(f"Green's function type : {green_type}")
-        print(f"Identity matrix       : {self.I.shape}")
-        print(f"H(k) callable         : {'Yes' if callable(self.H) else 'No'}")
-        print(f"Momentum symbols      : {self.k_symbols}")
+        print(f"Green's function type      : {green_type}")
+        print(f"Dimension d                : {self.d}")
+        print(f"Band size N                : {self.N}")
+        print(f"H(k) callable              : {'Yes' if callable(self.H) else 'No'}")
+        print(f"Momentum symbols           : {self.k_symbols}")
         print("======================================\n")
 
     # --- GF computation in k-space ---
@@ -100,11 +101,16 @@ class GreensFunctionCalculator:
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
         (omega ± i*eta - H(k)).
         """
-        # Ensure correct momentum dimensionality
-        if len(momentum) != self.d:
-            raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
+        if self.d != 1:
+            # Sanitize momentum input
+            momentum = sanitize_vector(momentum, self.symbolic)
+            # Ensure correct momentum dimensionality
+            if len(momentum) != self.d:
+                raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
 
         H_k = self.H(momentum)  # Hamiltonian at k
+        H_k = [H_k] if self.N == 1 else H_k  # ensure indexable for 1D
+
         # convert to backend-specific matrix/array
         H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k, dtype=complex)
         if H_k.shape != (self.N, self.N):
@@ -127,8 +133,6 @@ class GreensFunctionCalculator:
         
         return G_k
 
-    # --- Analytical helpers ---
-
     def compute_eigen_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
         """
         Diagonalize the inverse Green's function matrix to obtain its eigenbasis and eigenvalues.
@@ -143,11 +147,17 @@ class GreensFunctionCalculator:
         - G⁻¹(k) diagonalized
         """
         # 1) momentum validation
-        if len(momentum) != self.d:
-            raise ValueError(f"Expected {self.d} momentum components, got {len(momentum)}.")
+        if self.d != 1:
+            # Sanitize momentum input
+            momentum = sanitize_vector(momentum, self.symbolic)
+            # Ensure correct momentum dimensionality
+            if len(momentum) != self.d:
+                raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
 
         # 2) H(k) build + shape check
         H_k = self.H(momentum)
+        H_k = [H_k] if self.N == 1 else H_k  # ensure indexable for 1D
+        
         if self.symbolic:
             H_k = sp.Matrix(H_k)
         else:
@@ -312,12 +322,6 @@ class GreensFunctionCalculator:
         # Compute eigenvalues of the inverse Green's function
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(k)
 
-        if self.verbose:
-            print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
-            for i, lambda_i in enumerate(eigenvalues):
-                print(f"lambda_{i}(k):")
-                pprint(lambda_i)
-
         root_solutions = []
         for i, lambda_i in enumerate(eigenvalues):
             # simplify for readability and solving
@@ -354,6 +358,10 @@ class GreensFunctionCalculator:
                 # fallback if something really unexpected happens
                 root_solutions.append((f"lambda_{i}=0", f"Error during solving: {e}"))
 
+        if self.verbose:
+            print("\nRoots of the Hamiltonian:")
+            pprint(root_solutions, use_unicode=True)
+                
         return root_solutions
 
     # --- Fourier transformation to real space ---
