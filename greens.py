@@ -339,12 +339,16 @@ class GreensFunctionCalculator:
                 lam_simpl = sp.simplify(lambda_i)
                 try:
                     # polynomial attempt
-                    poly = sp.Poly(lam_simpl, k_var, domain=sp.EX)
+                    poly = sp.Poly(lam_simpl, k_var)  # let SymPy pick the domain
                     if poly.total_degree() > 0:
-                        roots = poly.all_roots()
-                        solset = sp.FiniteSet(*roots)
+                        roots_dict = sp.roots(poly.as_expr(), k_var)  # dict {root: multiplicity}
+                        # expand multiplicities into a list, to match your previous FiniteSet(*roots)
+                        roots_list = []
+                        for r, m in roots_dict.items():
+                            roots_list.extend([sp.simplify(r)] * int(m))
+                        solset = sp.FiniteSet(*roots_list)
                     else:
-                        solset = sp.S.Complexes if lam_simpl == 0 else sp.EmptySet
+                        solset = sp.S.Complexes if sp.simplify(lam_simpl) == 0 else sp.EmptySet
                 except sp.PolynomialError:
                     # general solve
                     solset = sp.solveset(sp.Eq(lam_simpl, 0), k_var, domain=sp.S.Complexes)

@@ -45,14 +45,14 @@ roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0)
 
 
 # Non-ferromagnetic side
-nonferro_greenscalculator = GreensFunctionCalculator(
-    hamiltonian=nonferro_hamiltonian,
-    identity=sp.Matrix([1]),
-    symbolic=True,
-    energy_level=omega,
-    broadening=eta,
-    retarded=True,
-    dimension=1,
-    verbose=True)
+#nonferro_greenscalculator = GreensFunctionCalculator(
+#    hamiltonian=nonferro_hamiltonian,
+#    identity=sp.Matrix([1]),
+#    symbolic=True,
+#    energy_level=omega,
+#    broadening=eta,
+#    retarded=True,
+#    dimension=1,
+#    verbose=True)
 
 #nonferro_greenscalculator.info() # correct
