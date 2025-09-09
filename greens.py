@@ -1,6 +1,6 @@
 import numpy as np
 import sympy as sp
-from sympy import solveset, S, pprint
+from sympy import pprint
 from typing import Callable, Union, Optional
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector, get_identity
 import warnings
