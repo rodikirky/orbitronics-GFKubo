@@ -1,10 +1,11 @@
 import numpy as np
 import sympy as sp
 from sympy import pprint
-from typing import Callable, Union, Optional
-from utils import invert_matrix, print_symbolic_matrix, sanitize_vector, get_identity
+from typing import Callable, Union
+from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 import warnings
-NUM_EIG_TOL = 1e-8  # reconstruction tolerance for eigen-decomp checks
+# reconstruction tolerance for eigen-decomp checks
+NUM_EIG_TOL = 1e-8  
 
 
 class GreensFunctionCalculator:

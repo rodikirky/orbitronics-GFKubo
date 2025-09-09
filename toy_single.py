@@ -8,7 +8,8 @@ from utils import sanitize_vector
 ################################################################
 
 # Define symbolic parameters
-momentum, omega, eta = sp.symbols("k omega eta", real=True)
+momentum, omega = sp.symbols("k omega", real=True)
+eta = sp.symbols("eta", real=True, positive=True)
 ferro_m, ferro_potential = sp.symbols(
     "m_F V_F", real=True)
 nonferro_m, nonferro_potential = sp.symbols(
