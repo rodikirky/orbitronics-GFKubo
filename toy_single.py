@@ -41,7 +41,7 @@ ferro_greenscalculator = GreensFunctionCalculator(
 #ferro_greenscalculator.info() # correct
 #ferro_G_k = ferro_greenscalculator.compute_kspace_greens_function(momentum) # correct
 #_, eigenvalues, _ = ferro_greenscalculator.compute_eigen_greens_inverse(momentum) # correct
-roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0)
+#roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0) # correct
 
 
 # Non-ferromagnetic side
