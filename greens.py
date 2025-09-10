@@ -570,18 +570,18 @@ class GreensFunctionCalculator:
 
         residue_sum = 0
         for k0, m in roots_with_mult.items(): # roots k0 with their multiplicity m
+            # Residue formula for pole of order m:
+            # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
+            expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
+            if m == 1:
+                res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
+            else:
+                deriv = sp.diff(expr, (kz_sym, m - 1))
+                res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
             # Half-plane selector
             sgn = sp.sign(sp.im(k0))
             if sgn in (sp.Integer(1), sp.Integer(-1)):
                 if int(sgn) == z_diff_sign:
-                    # Residue formula for pole of order m:
-                    # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
-                    expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
-                    if m == 1:
-                        res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
-                    else:
-                        deriv = sp.diff(expr, (kz_sym, m - 1))
-                        res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
                     residue_sum += res
                     contributed_any = True
                 elif self.verbose:
@@ -620,8 +620,9 @@ class GreensFunctionCalculator:
                                     contributed = True
                     residue_sum += extra
 
-            contrib += sp.I * residue_sum # factor of i from residue theorem
             contributed_any = True
-            
+
+        contrib = sp.I * residue_sum # factor of i from residue theorem    
+        
         return contrib, contributed_any
 
