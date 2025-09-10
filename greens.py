@@ -419,8 +419,7 @@ class GreensFunctionCalculator:
             sig = int(sp.sign(z_diff))
             if sig == 0:
                 warnings.warn("z and z' are equal; results may be singular.")
-            if z_diff_sign != sig:
-                warnings.warn(f"Sign of (z-z')={sig} does not match z_diff_sign={z_diff_sign}. Results may be incorrect.")
+            assert z_diff_sign == sig, f"Expected the sign of (z-z')={z-z_prime} to match z_diff_sign={z_diff_sign}. Adjust z_diff_sign to match sign(z-z')."
 
         else:
             assert isinstance(
