@@ -402,7 +402,7 @@ class GreensFunctionCalculator:
         k_dir = self.k_symbols[self.d - 1]  # direction of real-space transform (last component)
         
         if self.verbose:
-            print(f"\nPerforming 1D Fourier transform in {self.d} dimensions over variable {k_dir}.")
+            print(f"\nPerforming 1D Fourier transform in {self.d} dimension(s) over variable {k_dir}.")
 
         q = self.q
         z_sym, zp_sym = sp.sympify(z), sp.sympify(z_prime)

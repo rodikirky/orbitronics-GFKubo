@@ -10,10 +10,14 @@ from utils import sanitize_vector
 # Define symbolic parameters
 momentum, omega = sp.symbols("k omega", real=True)
 eta = sp.symbols("eta", real=True, positive=True)
-ferro_m, ferro_potential = sp.symbols(
-    "m_F V_F", real=True)
-nonferro_m, nonferro_potential = sp.symbols(
-    "m_N V_N", real=True)
+ferro_m = sp.symbols(
+    "m_F", real=True, positive=True)
+ferro_potential = sp.symbols(
+    "V_F", real=True)
+nonferro_m = sp.symbols(
+    "m_N", real=True, positive=True)
+nonferro_potential = sp.symbols(
+    "V_N", real=True)
 
 # Define the Hamiltonian for a single-channel toy model
 def ferro_hamiltonian(k):
@@ -44,6 +48,8 @@ ferro_greenscalculator = GreensFunctionCalculator(
 #_, eigenvalues, _ = ferro_greenscalculator.compute_eigen_greens_inverse(momentum) # correct
 #roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0) # correct
 
+z, z_prime = sp.symbols("z z'", real=True)
+ferro_G_r = ferro_greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime)
 
 # Non-ferromagnetic side
 #nonferro_greenscalculator = GreensFunctionCalculator(

@@ -73,6 +73,8 @@ class OrbitronicHamiltonianSystem:
         self.verbose = verbose
 
         self.mass = sp.sympify(mass) if symbolic else float(mass)
+        if not self.mass > 0:
+            raise ValueError("Mass must be positive.")
         self.gamma = sp.sympify(orbital_texture_coupling) if symbolic else float(
             orbital_texture_coupling)
         self.J = sp.sympify(exchange_interaction_coupling) if symbolic else float(
