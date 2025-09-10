@@ -375,7 +375,9 @@ class GreensFunctionCalculator:
                                                          z: Union[float, sp.Basic],
                                                          z_prime: Union[float, sp.Basic],
                                                          z_diff_sign: int = 1,
-                                                         full_matrix: bool = False):
+                                                         full_matrix: bool = False,
+                                                         disambiguation: str = "error",
+                                                         **kwargs):
         """
         Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem.
 
@@ -388,12 +390,20 @@ class GreensFunctionCalculator:
         Parameters:
         - z, z′: Real numbers or real symbols; coordinates along the last spatial dimension.
         - z_diff_sign: Sign of (z-z′) to determine contour closure direction:
-            defaults to +1, i.e. z > z′
+            defaults to +1, i.e. z > z′, since GF calculator defaults to retarded (+iη).
         - full_matrix: If True, reconstruct the full Green's function matrix in its original basis (not just the diagonal form).
-
+        - disambiguation: This determines the handling of indeterminate poles. Choose one of {"error","gate","assume"}:
+            - "error": raise with a clear message listing ambiguous quantities. (default)
+            - "gate": include indeterminate poles multiplied by a Heaviside gate.
+            - "assume": use user-provided assumptions (see `case_assumptions`) to resolve signs.
+            
         Returns:
         - G(z, z′): The symbolic real-space Green's function matrix.
         """
+        if disambiguation not in ("gate", "assume", "error"):
+            raise ValueError(f"Invalid disambiguation='{disambiguation}'. Use 'gate', 'assume', or 'error'.")
+        # optional: a list of SymPy assumptions to apply when disambiguation="assume"
+        case_assumptions = kwargs.pop("case_assumptions", [])
 
         if not self.symbolic:
             warnings.warn(
@@ -434,7 +444,7 @@ class GreensFunctionCalculator:
         has_contributions = False
 
         for i, lambda_i in enumerate(eigenvalues):
-            contrib, contributed_any = self._residue_sum_for_lambda(lambda_i, z, z_prime, k_dir, z_diff_sign)
+            contrib, contributed_any = self._residue_sum_for_lambda(lambda_i, z, z_prime, k_dir, z_diff_sign, disambiguation=disambiguation, case_assumptions=case_assumptions)
             has_contributions = has_contributions or contributed_any
             G_z_diag.append(contrib if contributed_any else 0)
 
@@ -460,7 +470,7 @@ class GreensFunctionCalculator:
 
         return G_z
     
-    def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
+    def compute_rspace_greens_symbolic_1d(self, z, z_prime, z_diff_sign = None, full_matrix: bool = False, disambiguation: str | None = None):
         """
         Wrapper around compute_rspace_greens_symbolic_1d_along_last_dim that
         returns results in the legacy format expected by tests:
@@ -482,9 +492,10 @@ class GreensFunctionCalculator:
             Tuples labeling each matrix element (e.g., "G_00") with its
             corresponding expression.
         """
+        disambiguation = "error" if disambiguation is None else disambiguation
+        z_diff_sign = self.q if z_diff_sign is None else z_diff_sign
         G = self.compute_rspace_greens_symbolic_1d_along_last_dim(
-            z, z_prime, full_matrix=full_matrix
-        )
+            z, z_prime, z_diff_sign, full_matrix=full_matrix, disambiguation=disambiguation)
 
         # If numeric mode: nothing implemented, return []
         if isinstance(G, list):
@@ -515,7 +526,7 @@ class GreensFunctionCalculator:
 
     # --- Internal utilities ---
     
-    def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign):
+    def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign, disambiguation: str = "error", **kwargs):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
         This method of calculating the residue is based on the assumption that the diagonal
@@ -532,10 +543,13 @@ class GreensFunctionCalculator:
         - has_contributions: Tracks whether any pole has contributed
 
         Returns:
-        - contrib: Total residue contribution to G_{ii}(z, z′)
+        - contrib: Total residue contribution to G_{ii}(z, z′), that is the residue sum multiplied by i.
         - has_contributions: Updated flag
         """
         contributed_any = False
+        case_assumptions = kwargs.pop("case_assumptions", [])
+        ambiguous = []  # store (k0, m, res_expr) for disambiguation="assume" mode
+
         delta_z = z - z_prime
         phase = sp.exp(sp.I * kz_sym * delta_z)
 
@@ -553,25 +567,60 @@ class GreensFunctionCalculator:
         roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)  # dict {root: multiplicity}
         if self.verbose:
             print(f"  Found roots (with multiplicity) of eigenvalue {lambda_i}: {roots_with_mult}")
-        
-        contrib = 0
+
+        residue_sum = 0
         for k0, m in roots_with_mult.items(): # roots k0 with their multiplicity m
             # Half-plane selector
-            if z_diff_sign != sp.sign(sp.im(k0)):
-                if self.verbose:
-                    print(f"Pole k={k0} (multiplicity={m}) lies in wrong half-plane; skipped.")
-                continue
-
-            # Residue formula for pole of order m:
-            # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
-            expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
-            if m == 1:
-                res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
+            sgn = sp.sign(sp.im(k0))
+            if sgn in (sp.Integer(1), sp.Integer(-1)):
+                if int(sgn) == z_diff_sign:
+                    # Residue formula for pole of order m:
+                    # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
+                    expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
+                    if m == 1:
+                        res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
+                    else:
+                        deriv = sp.diff(expr, (kz_sym, m - 1))
+                        res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
+                    residue_sum += res
+                    contributed_any = True
+                elif self.verbose:
+                    print(f"Pole k={k0} (m={m}) lies in wrong half-plane; skipped.")
             else:
-                deriv = sp.diff(expr, (kz_sym, m - 1))
-                res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
+                # indeterminate: choose a policy from ("error", "gate", "assume")
+                if disambiguation == "gate":
+                    gate = sp.Heaviside(z_diff_sign * sp.im(k0), 0) 
+                    residue_sum += gate * res
+                    contributed_any = True
+                    if self.verbose:
+                        print(f"Pole k={k0} (m={m}) indeterminate; included with Heaviside gate.")
+                elif disambiguation == "assume":
+                    ambiguous.append((k0, m, res))
+                else:  # "error"
+                    raise ValueError(
+                        "Indeterminate pole selection: sign(Im(k0)) is unknown. "
+                        "Provide assumptions (e.g. sp.Q.positive(omega - V_F)) or "
+                        "use disambiguation='gate'/'assume'."
+                    )
+                
+                # If using assumptions, resolve ambiguous ones now
+                if ambiguous and disambiguation == "assume":
+                    if not case_assumptions:
+                        raise ValueError(
+                            "Indeterminate pole selection and no case_assumptions provided. "
+                            "Pass e.g. case_assumptions=[sp.Q.positive(omega - V_F)]"
+                        )
+                    extra = 0
+                    for a in case_assumptions:
+                        with sp.assuming(a):
+                            for (k0, m, res_expr) in ambiguous:
+                                s = sp.sign(sp.im(k0))
+                                if s in (sp.Integer(1), sp.Integer(-1)) and int(s) == z_diff_sign:
+                                    extra += sp.simplify(res_expr)
+                                    contributed = True
+                    residue_sum += extra
 
-            contrib += sp.I * res # factor of i from residue theorem
+            contrib += sp.I * residue_sum # factor of i from residue theorem
             contributed_any = True
             
         return contrib, contributed_any
