@@ -374,6 +374,7 @@ class GreensFunctionCalculator:
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
                                                          z: Union[float, sp.Basic],
                                                          z_prime: Union[float, sp.Basic],
+                                                         z_diff_sign: int = 1,
                                                          full_matrix: bool = False):
         """
         Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem.
@@ -386,6 +387,8 @@ class GreensFunctionCalculator:
 
         Parameters:
         - z, z′: Real numbers or real symbols; coordinates along the last spatial dimension.
+        - z_diff_sign: Sign of (z-z′) to determine contour closure direction:
+            defaults to +1, i.e. z > z′
         - full_matrix: If True, reconstruct the full Green's function matrix in its original basis (not just the diagonal form).
 
         Returns:
@@ -404,10 +407,8 @@ class GreensFunctionCalculator:
         if self.verbose:
             print(f"\nPerforming 1D Fourier transform in {self.d} dimension(s) over variable {k_dir}.")
 
-        q = self.q
         z_sym, zp_sym = sp.sympify(z), sp.sympify(z_prime)
         assert z_sym.is_real is not False and zp_sym.is_real is not False, "Both z and z′ must be real symbols or numbers"
-        z_diff_sign = q  # default assumption: z-z'>0 for retarded GF and z<z' for advanced GF
 
         if not isinstance(z, sp.Symbol):
             assert not isinstance(
@@ -417,8 +418,9 @@ class GreensFunctionCalculator:
             z_diff = z - z_prime
             sig = int(sp.sign(z_diff))
             if sig == 0:
-                sig = self.q  # default to retarded(+)/advanced(-) choice
-            z_diff_sign = sig
+                warnings.warn("z and z' are equal; results may be singular.")
+            if z_diff_sign != sig:
+                warnings.warn(f"Sign of (z-z')={sig} does not match z_diff_sign={z_diff_sign}. Results may be incorrect.")
 
         else:
             assert isinstance(
