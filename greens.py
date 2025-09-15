@@ -52,6 +52,7 @@ class GreensFunctionCalculator:
 
         self.omega = energy_level
         self.eta = broadening
+        assert self.eta > 0, "Broadening η must be positive."
         self.q = 1 if retarded else -1
 
         # Choice of dimension determines default momentum symbols:
