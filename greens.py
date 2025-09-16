@@ -5,7 +5,7 @@ from typing import Callable, Union
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 import warnings
 # reconstruction tolerance for eigen-decomp checks
-NUM_EIG_TOL = 1e-8  
+NUM_EIG_TOL = 1e-8
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 
 
@@ -42,7 +42,8 @@ class GreensFunctionCalculator:
         # validate identity
         if not (hasattr(self.I, "shape") and self.I.shape[0] == self.I.shape[1]):
             raise ValueError(f"Identity must be a square matrix.")
-        self.N = int(self.I.shape[0]) # band size, e.g., 2 for spin-1/2 systems
+        # band size, e.g., 2 for spin-1/2 systems
+        self.N = int(self.I.shape[0])
 
         self.symbolic = symbolic
         # Ensure identity is in the correct format
@@ -60,28 +61,31 @@ class GreensFunctionCalculator:
             warnings.warn("No broadening η provided; using symbolic η > 0.")
         else:
             self.eta = INFINITESIMAL
-            warnings.warn(f"No broadening η provided; defaulting to η={self.eta}.")
+            warnings.warn(
+                f"No broadening η provided; defaulting to η={self.eta}.")
         self.q = 1 if retarded else -1
 
         # Choice of dimension determines default momentum symbols:
         self.d = int(dimension)
         if self.d not in (1, 2, 3):
-            raise ValueError(f"Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
+            raise ValueError(
+                f"Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
+
+        # Canonical momentum symbols used internally for solving:
+        # k_symbols[0] = "k_x", k_symbols[1] = "k_y", k_symbols[2] = "k_z"
+        # Only relevant for symbolic mode.
         if self.symbolic:
-            names = ["k"] if self.d == 1 else [f"k_{ax}" for ax in "xyz"[:self.d]]
+            names = ["k"] if self.d == 1 else [
+                f"k_{ax}" for ax in "xyz"[:self.d]]
             self.k_symbols = sp.symbols(" ".join(names), real=True)
             # For consistency in code paths, make it indexable like a list
             if isinstance(self.k_symbols, sp.Symbol):
                 self.k_symbols = [self.k_symbols]
+            assert isinstance(self.k_symbols, (list, tuple)
+                              ) and len(self.k_symbols) == self.d
         else:
             # numeric path: you still need the length for checks
             self.k_symbols = [None] * self.d
-
-        """
-        Canonical momentum symbols used internally for solving:
-        k_symbols[0] = "k_x", k_symbols[1] = "k_y", k_symbols[2] = "k_z"
-        Only relevant for symbolic mode.
-        """
 
         # for easy debugging along the way
         self.verbose = verbose
@@ -100,7 +104,8 @@ class GreensFunctionCalculator:
         print(f"Green's function type      : {green_type}")
         print(f"Dimension d                : {self.d}")
         print(f"Band size N                : {self.N}")
-        print(f"H(k) callable              : {'Yes' if callable(self.H) else 'No'}")
+        print(
+            f"H(k) callable              : {'Yes' if callable(self.H) else 'No'}")
         print(f"Momentum symbols           : {self.k_symbols}")
         print("======================================\n")
 
@@ -116,15 +121,18 @@ class GreensFunctionCalculator:
             momentum = sanitize_vector(momentum, self.symbolic)
             # Ensure correct momentum dimensionality
             if len(momentum) != self.d:
-                raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
+                raise ValueError(
+                    f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
 
         H_k = self.H(momentum)  # Hamiltonian at k
         H_k = [H_k] if self.N == 1 else H_k  # ensure indexable for 1D
 
         # convert to backend-specific matrix/array
-        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(H_k, dtype=complex)
+        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(
+            H_k, dtype=complex)
         if H_k.shape != (self.N, self.N):
-            raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+            raise ValueError(
+                f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
 
         if self.symbolic:
             G_inv = (self.omega + self.q * self.eta * sp.I) * self.I - H_k
@@ -140,7 +148,7 @@ class GreensFunctionCalculator:
                 H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
             print_symbolic_matrix(G_inv, name="( ω ± iη - H(k) )") if self.symbolic else print(
                 "Inversion target =\n", G_inv)
-        
+
         return G_k
 
     def compute_eigen_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
@@ -162,19 +170,21 @@ class GreensFunctionCalculator:
             momentum = sanitize_vector(momentum, self.symbolic)
             # Ensure correct momentum dimensionality
             if len(momentum) != self.d:
-                raise ValueError(f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
+                raise ValueError(
+                    f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
 
         # 2) H(k) build + shape check
         H_k = self.H(momentum)
         H_k = [H_k] if self.N == 1 else H_k  # ensure indexable for 1D
-        
+
         if self.symbolic:
             H_k = sp.Matrix(H_k)
         else:
             H_k = np.asarray(H_k, dtype=complex)
 
         if H_k.shape != (self.N, self.N):
-            raise ValueError(f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+            raise ValueError(
+                f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
 
         # 3) G^{-1}(k)
         if self.symbolic:
@@ -194,7 +204,8 @@ class GreensFunctionCalculator:
                     pairs.append((sp.simplify(lam), v))
 
             if len(pairs) != self.N:
-                raise ValueError("G^{-1}(k) is not diagonalizable: insufficient eigenvectors.")
+                raise ValueError(
+                    "G^{-1}(k) is not diagonalizable: insufficient eigenvectors.")
 
             # Sorting for a reproducible order
             pairs.sort(key=lambda t: sp.default_sort_key(sp.simplify(t[0])))
@@ -205,7 +216,8 @@ class GreensFunctionCalculator:
             try:
                 P_inv = P.inv()
             except Exception:
-                raise ValueError("G^{-1}(k) is not diagonalizable: eigenbasis is singular.")
+                raise ValueError(
+                    "G^{-1}(k) is not diagonalizable: eigenbasis is singular.")
 
             D = sp.diag(*eigenvalues)
 
@@ -213,17 +225,20 @@ class GreensFunctionCalculator:
             D_recon = sp.simplify(P_inv * G_inv * P)
 
             # (1) Off-diagonals must vanish exactly (or simplify to zero)
-            offdiag = D_recon - sp.diag(*[D_recon[i, i] for i in range(self.N)])
+            offdiag = D_recon - sp.diag(*[D_recon[i, i]
+                                        for i in range(self.N)])
             if not offdiag.equals(sp.zeros(self.N)):
                 if not sp.simplify(offdiag).is_zero_matrix:
-                    raise ValueError("Eigendecomposition inconsistency: off-diagonal terms remain in P^{-1} G^{-1} P.")
+                    raise ValueError(
+                        "Eigendecomposition inconsistency: off-diagonal terms remain in P^{-1} G^{-1} P.")
 
             # (2) Diagonals must match eigenvalues (after simplification)
             for i in range(self.N):
                 diff = sp.simplify(D_recon[i, i] - D[i, i])
                 # equals(0) can be None; also try is_zero/simplify to be safe
                 if not (diff.equals(0) or diff.is_zero):
-                    raise ValueError("Eigendecomposition inconsistency: diagonal of P^{-1} G^{-1} P does not match eigenvalues.")
+                    raise ValueError(
+                        "Eigendecomposition inconsistency: diagonal of P^{-1} G^{-1} P does not match eigenvalues.")
 
             if self.verbose:
                 print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
@@ -233,7 +248,8 @@ class GreensFunctionCalculator:
             residual = (P * D * P_inv - G_inv)
             if not residual.equals(sp.zeros(self.N)):
                 if not sp.simplify(residual).is_zero_matrix:
-                    raise ValueError("Eigendecomposition failed: P*D*P^{-1} != G^{-1}(k).")
+                    raise ValueError(
+                        "Eigendecomposition failed: P*D*P^{-1} != G^{-1}(k).")
 
             return P, eigenvalues, D
 
@@ -248,7 +264,8 @@ class GreensFunctionCalculator:
             condP = np.linalg.cond(P)
             # optional warning:
             if not np.isfinite(condP) or condP > 1e12:
-                warnings.warn(f"Ill-conditioned eigenbasis (cond={condP:.2e}). Results may be unstable.")
+                warnings.warn(
+                    f"Ill-conditioned eigenbasis (cond={condP:.2e}). Results may be unstable.")
 
             P_inv = invert_matrix(P, symbolic=False)
             D = np.diag(vals.astype(complex))
@@ -267,7 +284,8 @@ class GreensFunctionCalculator:
 
             # (2) Diagonal entries should match eigenvalues within tolerance (order already enforced by sorting)
             diag_diff = np.diag(D_recon) - np.diag(D)
-            rel_err = np.linalg.norm(diag_diff) / max(1.0, np.linalg.norm(np.diag(D)))
+            rel_err = np.linalg.norm(diag_diff) / \
+                max(1.0, np.linalg.norm(np.diag(D)))
             if rel_err > NUM_EIG_TOL:
                 raise ValueError(
                     f"Eigendecomposition inconsistency: diagonal mismatch rel. error {rel_err:.2e} exceeds {NUM_EIG_TOL:.1e}"
@@ -281,7 +299,8 @@ class GreensFunctionCalculator:
             num = np.linalg.norm(P @ D @ P_inv - G_inv)
             den = max(1.0, np.linalg.norm(G_inv))
             if num / den > NUM_EIG_TOL:
-                raise ValueError("Eigendecomposition failed: reconstruction error above tolerance.")
+                raise ValueError(
+                    "Eigendecomposition failed: reconstruction error above tolerance.")
 
             return P, vals, D
 
@@ -314,20 +333,23 @@ class GreensFunctionCalculator:
             If `solve_for` is out of range [0, d-1].
         """
         if not self.symbolic:
-            warnings.warn("Root solving is only supported in symbolic mode. Enable symbolic=True.")
+            warnings.warn(
+                "Root solving is only supported in symbolic mode. Enable symbolic=True.")
             return []
-        
+
         # validate index
         if not isinstance(solve_for, int):
-            raise TypeError(f"'solve_for' must be an int in [0, {self.d-1}] (k-dimension index).")
+            raise TypeError(
+                f"'solve_for' must be an int in [0, {self.d-1}] (k-dimension index).")
         if solve_for < 0 or solve_for >= self.d:
             valid_indices = ", ".join(str(i) for i in range(self.d))
-            raise ValueError(f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
+            raise ValueError(
+                f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
 
-        k_var = self.k_symbols[solve_for] # variable to solve for
+        k_var = self.k_symbols[solve_for]  # variable to solve for
 
-        # Define symbolic momentum components 
-        k = sp.Matrix(self.k_symbols) # e.g., Matrix([k_x, k_y, k_z]) or fewer
+        # Define symbolic momentum components
+        k = sp.Matrix(self.k_symbols)  # e.g., Matrix([k_x, k_y, k_z]) or fewer
 
         # Compute eigenvalues of the inverse Green's function
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(k)
@@ -349,19 +371,23 @@ class GreensFunctionCalculator:
                 lam_simpl = sp.simplify(lambda_i)
                 try:
                     # polynomial attempt
-                    poly = sp.Poly(lam_simpl, k_var)  # let SymPy pick the domain
+                    # let SymPy pick the domain
+                    poly = sp.Poly(lam_simpl, k_var)
                     if poly.total_degree() > 0:
-                        roots_dict = sp.roots(poly.as_expr(), k_var)  # dict {root: multiplicity}
+                        # dict {root: multiplicity}
+                        roots_dict = sp.roots(poly.as_expr(), k_var)
                         # expand multiplicities into a list, to match your previous FiniteSet(*roots)
                         roots_list = []
                         for r, m in roots_dict.items():
                             roots_list.extend([sp.simplify(r)] * int(m))
                         solset = sp.FiniteSet(*roots_list)
                     else:
-                        solset = sp.S.Complexes if sp.simplify(lam_simpl) == 0 else sp.EmptySet
+                        solset = sp.S.Complexes if sp.simplify(
+                            lam_simpl) == 0 else sp.EmptySet
                 except sp.PolynomialError:
                     # general solve
-                    solset = sp.solveset(sp.Eq(lam_simpl, 0), k_var, domain=sp.S.Complexes)
+                    solset = sp.solveset(
+                        sp.Eq(lam_simpl, 0), k_var, domain=sp.S.Complexes)
                     if isinstance(solset, sp.ConditionSet):
                         warnings.warn(
                             f"λ[{i}] is not polynomial in {k_var}; returning a ConditionSet.",
@@ -370,12 +396,13 @@ class GreensFunctionCalculator:
                 root_solutions.append((f"lambda_{i}=0", solset))
             except Exception as e:
                 # fallback if something really unexpected happens
-                root_solutions.append((f"lambda_{i}=0", f"Error during solving: {e}"))
+                root_solutions.append(
+                    (f"lambda_{i}=0", f"Error during solving: {e}"))
 
         if self.verbose:
             print("\nRoots of the Hamiltonian:")
             pprint(root_solutions, use_unicode=True)
-                
+
         return root_solutions
 
     # --- Fourier transformation to real space ---
@@ -392,7 +419,7 @@ class GreensFunctionCalculator:
 
         Assumes translational invariance in all but the last spatial dimension, performing a 1D Fourier 
         transform along k_{d-1}. Supports 1D, 2D, and 3D systems.
-        
+
         Only diagonal entries are returned in default mode. 
         If full matrix in the original basis is needed, enable full_matrix=True.
 
@@ -405,12 +432,13 @@ class GreensFunctionCalculator:
             - "error": raise with a clear message listing ambiguous quantities. (default)
             - "gate": include indeterminate poles multiplied by a Heaviside gate.
             - "assume": use user-provided assumptions (see `case_assumptions`) to resolve signs.
-            
+
         Returns:
         - G(z, z′): The symbolic real-space Green's function matrix.
         """
         if disambiguation not in ("gate", "assume", "error"):
-            raise ValueError(f"Invalid disambiguation='{disambiguation}'. Use 'gate', 'assume', or 'error'.")
+            raise ValueError(
+                f"Invalid disambiguation='{disambiguation}'. Use 'gate', 'assume', or 'error'.")
         # optional: a list of SymPy assumptions to apply when disambiguation="assume"
         case_assumptions = kwargs.pop("case_assumptions", [])
 
@@ -421,10 +449,12 @@ class GreensFunctionCalculator:
         assert self.d >= 1, "Cannot perform real-space transform in zero-dimensional system."
 
         kvec = sp.Matrix(self.k_symbols)
-        k_dir = self.k_symbols[self.d - 1]  # direction of real-space transform (last component)
-        
+        # direction of real-space transform (last component)
+        k_dir = self.k_symbols[self.d - 1]
+
         if self.verbose:
-            print(f"\nPerforming 1D Fourier transform in {self.d} dimension(s) over variable {k_dir}.")
+            print(
+                f"\nPerforming 1D Fourier transform in {self.d} dimension(s) over variable {k_dir}.")
 
         z_sym, zp_sym = sp.sympify(z), sp.sympify(z_prime)
         assert z_sym.is_real is not False and zp_sym.is_real is not False, "Both z and z′ must be real symbols or numbers"
@@ -445,15 +475,18 @@ class GreensFunctionCalculator:
                 z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol since z is one."
 
         if self.verbose:
-            print("( ω ± iη - H(k) ) will be diagonalized to evaluate residues for the Fourier integral.")
-        
+            print(
+                "( ω ± iη - H(k) ) will be diagonalized to evaluate residues for the Fourier integral.")
+
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
-        G_z_diag = [] # List for the diagonal entries of G(z,z'), each the solution of an integral
+        # List for the diagonal entries of G(z,z'), each the solution of an integral
+        G_z_diag = []
         has_contributions = False
 
         for i, lambda_i in enumerate(eigenvalues):
-            contrib, contributed_any = self._residue_sum_for_lambda(lambda_i, z, z_prime, k_dir, z_diff_sign, disambiguation=disambiguation, case_assumptions=case_assumptions)
+            contrib, contributed_any = self._residue_sum_for_lambda(
+                lambda_i, z, z_prime, k_dir, z_diff_sign, disambiguation=disambiguation, case_assumptions=case_assumptions)
             has_contributions = has_contributions or contributed_any
             G_z_diag.append(contrib if contributed_any else 0)
 
@@ -462,7 +495,8 @@ class GreensFunctionCalculator:
                 print(f"  Contribution to residue sum: {contrib}")
 
         if not has_contributions:
-            warnings.warn("No poles passed the sign check; returning zero Green's function.")
+            warnings.warn(
+                "No poles passed the sign check; returning zero Green's function.")
             return sp.zeros(len(self.I))
 
         if all((val.is_zero is True) for val in G_z_diag):
@@ -474,12 +508,13 @@ class GreensFunctionCalculator:
         # Full matrix reconstruction from eigenbasis can be added if needed:
         if full_matrix:
             eigenbasis, _, _ = self.compute_eigen_greens_inverse(kvec)
-            G_full = eigenbasis @ G_z @ invert_matrix(eigenbasis, symbolic=True)
+            G_full = eigenbasis @ G_z @ invert_matrix(
+                eigenbasis, symbolic=True)
             return G_full
 
         return G_z
-    
-    def compute_rspace_greens_symbolic_1d(self, z, z_prime, z_diff_sign = None, full_matrix: bool = False, disambiguation: str | None = None):
+
+    def compute_rspace_greens_symbolic_1d(self, z, z_prime, z_diff_sign=None, full_matrix: bool = False, disambiguation: str | None = None):
         """
         Wrapper around compute_rspace_greens_symbolic_1d_along_last_dim that
         returns results in the legacy format expected by tests:
@@ -521,20 +556,19 @@ class GreensFunctionCalculator:
 
         return results
 
-    
     def compute_rspace_greens_numeric_1D(self,
                                          z: float,
                                          z_prime: float,
-                                         full_matrix: bool = False): # placeholder function for later implementation
+                                         full_matrix: bool = False):  # placeholder function for later implementation
         if self.symbolic:
             warnings.warn(
                 "Numeric 1D G(z,z') computation is not supported in symbolic mode. Disable: symbolic=False.")
-            
+
         warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].")
         return []
 
     # --- Internal utilities ---
-    
+
     def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign, disambiguation: str = "error", **kwargs):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
@@ -557,7 +591,8 @@ class GreensFunctionCalculator:
         """
         contributed_any = False
         case_assumptions = kwargs.pop("case_assumptions", [])
-        ambiguous = []  # store (k0, m, res_expr) for disambiguation="assume" mode
+        # store (k0, m, res_expr) for disambiguation="assume" mode
+        ambiguous = []
 
         delta_z = z - z_prime
         phase = sp.exp(sp.I * kz_sym * delta_z)
@@ -565,20 +600,24 @@ class GreensFunctionCalculator:
         if not lambda_i.is_polynomial(kz_sym):
             # Not polynomial (SymPy can’t reliably find poles)
             # Triggers unevaluated integral fallback
-            warnings.warn(f"Eigenvalue is not polynomial in k; returning unevaluated Fourier integral.")
+            warnings.warn(
+                f"Eigenvalue is not polynomial in k; returning unevaluated Fourier integral.")
             expr = sp.Integral(phase / sp.simplify(lambda_i),
-                            (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
+                               (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
             contributed_any = True
             if self.verbose:
-                print(f"  Unevaluated integral expression for G(k) diagonal entry: {expr}")
-            return expr, contributed_any 
+                print(
+                    f"  Unevaluated integral expression for G(k) diagonal entry: {expr}")
+            return expr, contributed_any
 
-        roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)  # dict {root: multiplicity}
+        # dict {root: multiplicity}
+        roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)
         if self.verbose:
-            print(f"  Found roots (with multiplicity) of eigenvalue {lambda_i}: {roots_with_mult}")
+            print(
+                f"  Found roots (with multiplicity) of eigenvalue {lambda_i}: {roots_with_mult}")
 
         residue_sum = 0
-        for k0, m in roots_with_mult.items(): # roots k0 with their multiplicity m
+        for k0, m in roots_with_mult.items():  # roots k0 with their multiplicity m
             # Residue formula for pole of order m:
             # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
             expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
@@ -594,15 +633,17 @@ class GreensFunctionCalculator:
                     residue_sum += res
                     contributed_any = True
                 elif self.verbose:
-                    print(f"Pole k={k0} (m={m}) lies in wrong half-plane; skipped.")
+                    print(
+                        f"Pole k={k0} (m={m}) lies in wrong half-plane; skipped.")
             else:
                 # indeterminate: choose a policy from ("error", "gate", "assume")
                 if disambiguation == "gate":
-                    gate = sp.Heaviside(z_diff_sign * sp.im(k0), 0) 
+                    gate = sp.Heaviside(z_diff_sign * sp.im(k0), 0)
                     residue_sum += gate * res
                     contributed_any = True
                     if self.verbose:
-                        print(f"Pole k={k0} (m={m}) indeterminate; included with Heaviside gate.")
+                        print(
+                            f"Pole k={k0} (m={m}) indeterminate; included with Heaviside gate.")
                 elif disambiguation == "assume":
                     ambiguous.append((k0, m, res))
                 else:  # "error"
@@ -611,7 +652,7 @@ class GreensFunctionCalculator:
                         "Provide assumptions (e.g. sp.Q.positive(omega - V_F)) or "
                         "use disambiguation='gate'/'assume'."
                     )
-                
+
                 # If using assumptions, resolve ambiguous ones now
                 if ambiguous and disambiguation == "assume":
                     if not case_assumptions:
@@ -631,7 +672,6 @@ class GreensFunctionCalculator:
 
             contributed_any = True
 
-        contrib = sp.I * residue_sum # factor of i from residue theorem    
-        
-        return contrib, contributed_any
+        contrib = sp.I * residue_sum  # factor of i from residue theorem
 
+        return contrib, contributed_any
