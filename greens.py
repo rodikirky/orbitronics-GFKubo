@@ -6,6 +6,7 @@ from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 import warnings
 # reconstruction tolerance for eigen-decomp checks
 NUM_EIG_TOL = 1e-8  
+INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 
 
 class GreensFunctionCalculator:
@@ -16,7 +17,7 @@ class GreensFunctionCalculator:
                  # omega
                  energy_level: Union[float, sp.Basic],
                  # eta
-                 broadening: float,
+                 broadening: Union[float, sp.Basic] = None,
                  # defaults to retarded Green's functions
                  retarded: bool = True,
                  # defaults to non-verbose
@@ -51,8 +52,15 @@ class GreensFunctionCalculator:
             self.I = np.asarray(np.array(self.I.tolist(), dtype=complex))
 
         self.omega = energy_level
-        self.eta = broadening
-        assert self.eta > 0, "Broadening η must be positive."
+        if broadening is not None:
+            self.eta = broadening
+            assert self.eta > 0, "Broadening η must be positive."
+        elif self.symbolic:
+            self.eta = sp.symbols("eta", positive=True)
+            warnings.warn("No broadening η provided; using symbolic η > 0.")
+        else:
+            self.eta = INFINITESIMAL
+            warnings.warn(f"No broadening η provided; defaulting to η={self.eta}.")
         self.q = 1 if retarded else -1
 
         # Choice of dimension determines default momentum symbols:
