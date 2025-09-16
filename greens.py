@@ -96,7 +96,8 @@ class GreensFunctionCalculator:
         """
         print("\nGreensFunctionCalculator configuration:")
         print("======================================")
-        print(f"Symbolic mode              : {self.symbolic}")
+        mode = "Symbolic" if self.symbolic else "Numeric"
+        print(f"Computation mode           : {mode}")
         print(f"Verbose mode               : {self.verbose}")
         print(f"Energy ω                   : {self.omega}")
         print(f"Infinitesimal broadening η : {self.eta}")
@@ -111,21 +112,44 @@ class GreensFunctionCalculator:
 
     # --- GF computation in k-space ---
 
-    def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
+    def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix] = None) -> Union[np.ndarray, sp.Matrix]:
         """
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
-        (omega ± i*eta - H(k)).
+        (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
+
+        Parameters
+        ----------
+        momentum: np.ndarray or sp.Matrix
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
+
+
+        Returns
+        ---------
+        G(k) as np.ndarray or sp.Matrix
+            Green's function in momentum space
+
+        Raises
+        ------
+        ValueError
+            If called in numeric mode without a specific momentum value.
         """
+        if momentum is None:
+            if self.symbolic:
+                momentum = sp.Matrix(self.k_symbols)
+            else:
+                raise ValueError(
+                    "Momentum must be provided in numeric mode (symbolic=False).")
         if self.d != 1:
-            # Sanitize momentum input
+            # Sanitize momentum vector input for correct format
             momentum = sanitize_vector(momentum, self.symbolic)
             # Ensure correct momentum dimensionality
             if len(momentum) != self.d:
                 raise ValueError(
                     f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
 
-        H_k = self.H(momentum)  # Hamiltonian at k
-        H_k = [H_k] if self.N == 1 else H_k  # ensure indexable for 1D
+        H_k = self.H(momentum)  # Hamiltonian at momentum k
+        H_k = [H_k] if self.N == 1 else H_k  # ensure indexable even in single-band case
 
         # convert to backend-specific matrix/array
         H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(
@@ -134,36 +158,49 @@ class GreensFunctionCalculator:
             raise ValueError(
                 f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
 
-        if self.symbolic:
-            G_inv = (self.omega + self.q * self.eta * sp.I) * self.I - H_k
-            G_k = invert_matrix(G_inv, symbolic=True)
-        else:
-            G_inv = (self.omega + self.q * self.eta * 1j) * self.I - H_k
-            G_k = invert_matrix(G_inv, symbolic=False)
-
+        imaginary_unit = sp.I if self.symbolic else 1j
+        G_inv = (self.omega + self.q * self.eta * imaginary_unit) * self.I - H_k
+        G_k = invert_matrix(G_inv, symbolic=self.symbolic)
+        
         if self.verbose:
-            print("\nComputing Green's function at k:")
+            print("\nComputing Green's function at momentum k")
             print("\nwith k = ", momentum)
             print_symbolic_matrix(
                 H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
             print_symbolic_matrix(G_inv, name="( ω ± iη - H(k) )") if self.symbolic else print(
-                "Inversion target =\n", G_inv)
+                "( ω ± iη - H(k) ) =\n", G_inv)
 
         return G_k
 
-    def compute_eigen_greens_inverse(self, momentum) -> Union[np.ndarray, sp.Matrix, list]:
+    def compute_eigen_greens_inverse(self, momentum: Union[np.ndarray, sp.Matrix] = None) -> Union[np.ndarray, sp.Matrix, list]:
         """
         Diagonalize the inverse Green's function matrix to obtain its eigenbasis and eigenvalues.
         Useful for identifying poles and simplifying root solving.
 
-        Parameters:
-        - momentum: value at which the Hamiltonian is evaluated
+        Parameters
+        ----------
+        momentum: np.ndarray or sp.Matrix
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
 
-        Returns:
+
+        Returns
+        ---------
         - eigenbasis (matrix of eigenvectors) of G⁻¹(k)
         - eigenvalues of G⁻¹(k)
         - G⁻¹(k) diagonalized
+
+        Raises
+        ------
+        ValueError
+            If called in numeric mode without a specific momentum value.
         """
+        if momentum is None:
+            if self.symbolic:
+                momentum = sp.Matrix(self.k_symbols)
+            else:
+                raise ValueError(
+                    "Momentum must be provided in numeric mode (symbolic=False).")
         # 1) momentum validation
         if self.d != 1:
             # Sanitize momentum input
@@ -193,6 +230,7 @@ class GreensFunctionCalculator:
             G_inv = (self.omega + self.q * self.eta * 1j) * self.I - H_k
 
         # 4) Eigendecomposition
+        ## Symbolic mode
         if self.symbolic:
             evects = G_inv.eigenvects()
             pairs = []
@@ -201,6 +239,8 @@ class GreensFunctionCalculator:
                     v = sp.Matrix(v)
                     if v.norm() != 0:
                         v = v / v.norm()
+                    else: 
+                        raise ValueError("Zero-norm eigenvector encountered.")
                     pairs.append((sp.simplify(lam), v))
 
             if len(pairs) != self.N:
@@ -208,52 +248,54 @@ class GreensFunctionCalculator:
                     "G^{-1}(k) is not diagonalizable: insufficient eigenvectors.")
 
             # Sorting for a reproducible order
-            pairs.sort(key=lambda t: sp.default_sort_key(sp.simplify(t[0])))
+            pairs.sort(key=lambda t: sp.default_sort_key(t[0]))
 
             eigenvalues = [lam for lam, _ in pairs]
-            P = sp.Matrix.hstack(*[v for _, v in pairs])
+            P = sp.Matrix.hstack(*[v for _, v in pairs]) # create eigenbasis matrix from stacking eigenvectors
 
             try:
                 P_inv = P.inv()
             except Exception:
                 raise ValueError(
-                    "G^{-1}(k) is not diagonalizable: eigenbasis is singular.")
+                    "G^{-1}(k) is not diagonalizable: eigenbasis is singular, i.e. not invertible.")
 
             D = sp.diag(*eigenvalues)
 
-            # --- Consistency check: D_direct (from eigenvalues) vs D_reconstructed (P^{-1} G^{-1} P)
+            #####################################################
+            # Consistency check: 
+            # D (from eigenvalues) vs D_recon = (P^{-1} G^{-1} P)
+            #####################################################
             D_recon = sp.simplify(P_inv * G_inv * P)
-
             # (1) Off-diagonals must vanish exactly (or simplify to zero)
             offdiag = D_recon - sp.diag(*[D_recon[i, i]
                                         for i in range(self.N)])
             if not offdiag.equals(sp.zeros(self.N)):
                 if not sp.simplify(offdiag).is_zero_matrix:
                     raise ValueError(
-                        "Eigendecomposition inconsistency: off-diagonal terms remain in P^{-1} G^{-1} P.")
-
+                        "Eigendecomposition inconsistent: off-diagonal terms remain in P^{-1} G^{-1} P.")
             # (2) Diagonals must match eigenvalues (after simplification)
             for i in range(self.N):
                 diff = sp.simplify(D_recon[i, i] - D[i, i])
                 # equals(0) can be None; also try is_zero/simplify to be safe
                 if not (diff.equals(0) or diff.is_zero):
                     raise ValueError(
-                        "Eigendecomposition inconsistency: diagonal of P^{-1} G^{-1} P does not match eigenvalues.")
-
-            if self.verbose:
-                print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
-                for i, lam in enumerate(eigenvalues):
-                    print(f"λ[{i}] = {sp.simplify(lam)}")
-
+                        "Eigendecomposition inconsistent: diagonal of P^{-1} G^{-1} P does not match eigenvalues.")
+            # (3) Final reconstruction check
             residual = (P * D * P_inv - G_inv)
             if not residual.equals(sp.zeros(self.N)):
                 if not sp.simplify(residual).is_zero_matrix:
                     raise ValueError(
                         "Eigendecomposition failed: P*D*P^{-1} != G^{-1}(k).")
 
+            if self.verbose:
+                print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
+                for i, lam in enumerate(eigenvalues):
+                    print(f"λ[{i}] = {sp.simplify(lam)}")
+         
             return P, eigenvalues, D
-
-        else:
+        
+        ## Numeric mode
+        else: 
             vals, vecs = np.linalg.eig(G_inv)
             # Sorting by real part first, imaginary part second gives a fixed, reproducible order
             idx = np.lexsort((vals.imag, vals.real))
@@ -270,41 +312,42 @@ class GreensFunctionCalculator:
             P_inv = invert_matrix(P, symbolic=False)
             D = np.diag(vals.astype(complex))
 
-            # --- Consistency check: D_direct vs D_reconstructed (up to numerical error)
+            #####################################################
+            # Consistency check (up to numerical error): 
+            # D (from eigenvalues) vs D_recon = (P^{-1} G^{-1} P)
+            #####################################################
             D_recon = P_inv @ G_inv @ P
-
             # (1) Off-diagonal energy should be ~0
             offdiag = D_recon.copy()
             np.fill_diagonal(offdiag, 0.0)
             offdiag_norm = np.linalg.norm(offdiag)
             if offdiag_norm > NUM_EIG_TOL:
                 raise ValueError(
-                    f"Eigendecomposition inconsistency: off-diagonal norm {offdiag_norm:.2e} exceeds {NUM_EIG_TOL:.1e}"
+                    f"Eigendecomposition inconsistent: off-diagonal norm {offdiag_norm:.2e} exceeds {NUM_EIG_TOL:.1e}"
                 )
-
             # (2) Diagonal entries should match eigenvalues within tolerance (order already enforced by sorting)
             diag_diff = np.diag(D_recon) - np.diag(D)
             rel_err = np.linalg.norm(diag_diff) / \
                 max(1.0, np.linalg.norm(np.diag(D)))
             if rel_err > NUM_EIG_TOL:
                 raise ValueError(
-                    f"Eigendecomposition inconsistency: diagonal mismatch rel. error {rel_err:.2e} exceeds {NUM_EIG_TOL:.1e}"
+                    f"Eigendecomposition inconsistent: diagonal mismatch rel. error {rel_err:.2e} exceeds {NUM_EIG_TOL:.1e}"
                 )
+            # (3) Final reconstruction check
+            residual_norm = np.linalg.norm(P @ D @ P_inv - G_inv) # Frobenius norm ought to vanish
+            den = max(1.0, np.linalg.norm(G_inv)) # normalization for appropriate tolerance scaling
+            if residual_norm / den > NUM_EIG_TOL:
+                raise ValueError(
+                    "Eigendecomposition failed: reconstruction error above tolerance.")
 
             if self.verbose:
                 print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
                 for i, lam in enumerate(vals):
                     print(f"λ[{i}] = {lam}")
 
-            num = np.linalg.norm(P @ D @ P_inv - G_inv)
-            den = max(1.0, np.linalg.norm(G_inv))
-            if num / den > NUM_EIG_TOL:
-                raise ValueError(
-                    "Eigendecomposition failed: reconstruction error above tolerance.")
-
             return P, vals, D
 
-    def compute_roots_greens_inverse(self, solve_for: int):
+    def compute_roots_greens_inverse(self, solve_for: int = None) -> list[tuple[str, sp.Set]]:
         """
         Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
@@ -316,14 +359,16 @@ class GreensFunctionCalculator:
 
         Parameters
         ----------
-        solve_for : int
-        Index of the momentum component to solve for: 0..(d-1)
+        solve_for : int;
+            Index of the momentum component to solve for: 0..(d-1)
+            If None, defaults to the last dimension (d-1).
 
         Returns
         -------
         List[Tuple[str, sp.Set]]
             A list of (label, solution_set) pairs, one per eigenvalue λ_i, where the set contains the
-            solutions for k_{solve_for} in the complex domain. Non-polynomial cases may return a ConditionSet.
+            k_{solve_for} in the complex domain that solve λ_i = 0. 
+            Non-polynomial cases may return a ConditionSet.
 
         Raises
         ------
@@ -337,6 +382,8 @@ class GreensFunctionCalculator:
                 "Root solving is only supported in symbolic mode. Enable symbolic=True.")
             return []
 
+        if solve_for is None:
+            solve_for = self.d - 1  # default to last dimension
         # validate index
         if not isinstance(solve_for, int):
             raise TypeError(
@@ -423,18 +470,25 @@ class GreensFunctionCalculator:
         Only diagonal entries are returned in default mode. 
         If full matrix in the original basis is needed, enable full_matrix=True.
 
-        Parameters:
-        - z, z′: Real numbers or real symbols; coordinates along the last spatial dimension.
-        - z_diff_sign: Sign of (z-z′) to determine contour closure direction:
+        Parameters
+        ----------
+        z, z′: Real numbers or real symbols; 
+            coordinates along the last spatial dimension.
+        z_diff_sign: int;
+            Sign of (z-z′) to determine contour closure direction:
             defaults to +1, i.e. z > z′, since GF calculator defaults to retarded (+iη).
-        - full_matrix: If True, reconstruct the full Green's function matrix in its original basis (not just the diagonal form).
-        - disambiguation: This determines the handling of indeterminate poles. Choose one of {"error","gate","assume"}:
+        full_matrix: boolean;
+            If True, reconstruct the full Green's function matrix in its original basis (not just the diagonal form).
+        disambiguation: str;
+            This determines the handling of indeterminate poles. Choose one of {"error","gate","assume"}:
             - "error": raise with a clear message listing ambiguous quantities. (default)
             - "gate": include indeterminate poles multiplied by a Heaviside gate.
             - "assume": use user-provided assumptions (see `case_assumptions`) to resolve signs.
 
         Returns:
-        - G(z, z′): The symbolic real-space Green's function matrix.
+        ----------
+        G(z, z′): matrix;
+            The symbolic real-space Green's function matrix.
         """
         if disambiguation not in ("gate", "assume", "error"):
             raise ValueError(
