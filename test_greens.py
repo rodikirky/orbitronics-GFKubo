@@ -11,7 +11,8 @@ from typing import Union
 # ────────────────────────────────
 
 def test_create_symbolic_greens_function():
-    m, gamma, J, Mx, omega, eta = sp.symbols("m gamma J Mx omega eta")
+    gamma, J, Mx, omega = sp.symbols("gamma J Mx omega")
+    m, eta = sp.symbols("m eta", real=True, positive=True)
 
     system = OrbitronicHamiltonianSystem(
         mass=m,
@@ -25,7 +26,7 @@ def test_create_symbolic_greens_function():
         identity=system.identity,
         symbolic=system.symbolic,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
     # Basic assertions to confirm setup
@@ -53,7 +54,7 @@ def test_create_numeric_greens_function():
         identity=system.identity,
         symbolic=system.symbolic,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
     # Basic assertions to confirm setup
@@ -71,7 +72,8 @@ def test_create_numeric_greens_function():
 # ────────────────────────────────
 
 def test_symbolic_greens_function_shape():
-    m, gamma, J, Mx, omega, eta = sp.symbols("m gamma J Mx omega eta")
+    gamma, J, Mx, omega = sp.symbols("gamma J Mx omega")
+    m, eta = sp.symbols("m eta", real=True, positive=True)
 
     system = OrbitronicHamiltonianSystem(
         mass=m,
@@ -85,7 +87,7 @@ def test_symbolic_greens_function_shape():
         identity=system.identity,
         symbolic=system.symbolic,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
     G = greens_calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0])) # zero momentum test run
@@ -109,7 +111,7 @@ def test_numeric_greens_function_shape():
         identity=system.identity,
         symbolic=False,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
     G = greens_calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))  # zero momentum
@@ -120,15 +122,17 @@ def test_symbolic_identity_hamiltonian():
     """
     For known input-output pair comparison, we use the identity function as a Hamiltonian.
     """
+    eta = sp.symbols("eta", real=True, positive=True)
+    omega = sp.symbols("omega", real=True)
+
     def identity_hamiltonian(k):
         return sp.eye(3)
-    omega, eta = sp.symbols("omega eta")
     calculator = GreensFunctionCalculator(
         hamiltonian=identity_hamiltonian,
         identity=sp.eye(3),
         symbolic=True,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
     G = calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
@@ -148,7 +152,7 @@ def test_numeric_identity_hamiltonian():
         identity=np.eye(3),
         symbolic=False,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
     G = calculator.compute_kspace_greens_function(np.array([0, 0, 0]))
@@ -164,8 +168,8 @@ def test_numeric_retarded_vs_advanced():
     
     I = np.eye(2)
 
-    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=True, dimension=2)
-    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, infinitestimal=eta, retarded=False, dimension=2)
+    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, broadening=eta, retarded=True, dimension=2)
+    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, broadening=eta, retarded=False, dimension=2)
 
     momentum = np.array([0.0, 0.0]) # since H(k) is constant here, k does not actually matter
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
@@ -184,8 +188,8 @@ def test_symbolic_retarded_vs_advanced():
     
     I = sp.eye(2)
 
-    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=True, dimension=2)
-    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, infinitestimal=eta, retarded=False, dimension=2)
+    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, broadening=eta, retarded=True, dimension=2)
+    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, broadening=eta, retarded=False, dimension=2)
 
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     G_ret = retarded_calc.compute_kspace_greens_function(momentum)
@@ -212,7 +216,7 @@ def test_symbolic_eigenvalues_shape_and_form():
         identity=I,
         symbolic=True,
         energy_level=0,
-        infinitestimal=0.1,
+        broadening=0.1,
         dimension=2,
         verbose=False
     )
@@ -238,7 +242,7 @@ def test_roots_return_expected_expressions():
         identity=I,
         symbolic=True,
         energy_level=0,
-        infinitestimal=0.0,
+        broadening=0.00,
         dimension=2,
         verbose=False
     )
@@ -259,7 +263,7 @@ def test_warns_on_non_polynomial_roots():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=0.0,
+        broadening=0.01,
         verbose=False
     )
     
@@ -272,7 +276,7 @@ def test_invalid_solve_for_index_raises_value_error():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=0.1
+        broadening=0.1
     )
 
     with pytest.raises(ValueError, match="out of range"):
@@ -296,7 +300,7 @@ def test_rspace_green_integrates_known_form():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=eta,
+        broadening=eta,
         verbose=False
     )
 
@@ -307,7 +311,7 @@ def test_rspace_green_integrates_known_form():
 
 def test_warns_when_integral_cannot_be_evaluated():
     z, z_prime = sp.symbols("z z'", real=True)
-    eta = sp.symbols("eta", real=True)
+    eta = sp.symbols("eta", real=True, positive=True)
 
     def H(kvec):
         # A non-polynomial (e.g. transcendental) dispersion: sympy can't integrate this
@@ -319,7 +323,7 @@ def test_warns_when_integral_cannot_be_evaluated():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=eta,
+        broadening=eta,
         verbose=False
     )
 
@@ -339,7 +343,7 @@ def test_result_depends_on_difference_not_absolutes():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=eta,
+        broadening=eta,
         verbose=False
     )
     
@@ -360,7 +364,7 @@ def test_multiple_bands_return_distinct_results():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        infinitestimal=0.1,
+        broadening=0.1,
         verbose=False
     )
 
@@ -379,16 +383,28 @@ def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
         identity=sp.eye(1),
         symbolic=True,
         energy_level=0,
-        infinitestimal=1e-20,  # small eta
-        verbose=False
+        broadening=1e-15,  # smallest eta that is not disregarded in the solver
+        verbose=True,
+        retarded=True
     )
+    
     with pytest.warns(UserWarning, match="No poles passed"):
-        result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
+        result = calc.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime,z_diff_sign=-1)  # z<z' scenario
         _, G_expr = result[0]
 
         # Substitute values for z, z′ such that z < z′
         val = G_expr.subs({z: 0, z_prime: 1}).evalf()
         assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
+    
+    #gk = calc.compute_kspace_greens_function()
+    #print("Computed G(k):", gk)
+    #roots = calc.compute_roots_greens_inverse()
+    #print("Computed roots:", roots)
+    #result = calc.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime,z_diff_sign=-1)  # z<z' scenario
+    #print(result)
+
+#test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane()
+
 
 # ────────────────────────────────
 # Verbose output
@@ -402,7 +418,7 @@ def test_numeric_verbose_output(capsys):
         identity=np.eye(2),
         symbolic=False,
         energy_level=1.0,
-        infinitestimal=0.1,
+        broadening=0.1,
         dimension=2,
         verbose=True
     )
@@ -423,7 +439,7 @@ def test_symbolic_verbose_output(capsys):
         identity=sp.eye(2),
         symbolic=True,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         dimension=2,
         verbose=True
     )
@@ -458,7 +474,7 @@ def test_numeric_noninvertible_matrix_raises():
         identity=identity,
         symbolic=False,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
 
@@ -480,7 +496,7 @@ def test_symbolic_noninvertible_matrix_raises():
         identity=identity,
         symbolic=True,
         energy_level=omega,
-        infinitestimal=eta,
+        broadening=eta,
         retarded=True
     )
 
@@ -493,7 +509,7 @@ def test_warns_in_numeric_mode_returns_empty_list():
         identity=np.eye(2),
         symbolic=False,
         energy_level=0,
-        infinitestimal=0.1,
+        broadening=0.1,
         verbose=False
     )
 
