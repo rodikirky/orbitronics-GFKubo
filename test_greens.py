@@ -384,26 +384,18 @@ def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
         symbolic=True,
         energy_level=0,
         broadening=1e-15,  # smallest eta that is not disregarded in the solver
-        verbose=True,
+        verbose=False,
         retarded=True
     )
     
     with pytest.warns(UserWarning, match="No poles passed"):
         result = calc.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime,z_diff_sign=-1)  # z<z' scenario
-        _, G_expr = result[0]
+        G_expr = result[0]
 
-        # Substitute values for z, z′ such that z < z′
+        # Substitute values for explicit z, z′ such that z < z′
         val = G_expr.subs({z: 0, z_prime: 1}).evalf()
         assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
     
-    #gk = calc.compute_kspace_greens_function()
-    #print("Computed G(k):", gk)
-    #roots = calc.compute_roots_greens_inverse()
-    #print("Computed roots:", roots)
-    #result = calc.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime,z_diff_sign=-1)  # z<z' scenario
-    #print(result)
-
-#test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane()
 
 
 # ────────────────────────────────
@@ -425,9 +417,12 @@ def test_numeric_verbose_output(capsys):
     
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
+    calculator. compute_eigen_greens_inverse(momentum)
 
     captured = capsys.readouterr()
-    assert "Inversion target" in captured.out
+    assert "Computing Green's function at momentum k" in captured.out
+    assert "ω ± iη - H(k)" in captured.out
+    assert "Diagonal elements" in captured.out
 
 def test_symbolic_verbose_output(capsys):
     def dummy_H(k): return sp.eye(2)
@@ -446,15 +441,18 @@ def test_symbolic_verbose_output(capsys):
     
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
-    calculator.compute_roots_greens_inverse(solve_for=0)
-    with pytest.warns(UserWarning, match="No poles"):
+    with pytest.warns(UserWarning, match="None of the eigenvalues"):
+        calculator.compute_roots_greens_inverse(solve_for=0)
+    with pytest.warns(UserWarning, match="No poles passed"):
         # There are no poles, so we expect a warning here
         calculator.compute_rspace_greens_symbolic_1d(z, z_prime)
 
         captured = capsys.readouterr()
-        assert "( ω ± iη - H(k) )" in captured.out
-        assert "eigenvalues" in captured.out
+        assert "( ω + iη - H(k) )" in captured.out
+        assert "Diagonal elements" in captured.out
         assert "Fourier transform" in captured.out
+        assert "integration variable" in captured.out
+
 
 # ────────────────────────────────
 # Error Handling
@@ -469,16 +467,19 @@ def test_numeric_noninvertible_matrix_raises():
     eta = 0.0
     identity = np.eye(3)
 
-    calculator = GreensFunctionCalculator(
-        hamiltonian=singular_hamiltonian,
-        identity=identity,
-        symbolic=False,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
+    # Catch the zero-eta warning during init
+    with pytest.warns(UserWarning, match=r"Broadening"):
+        calculator = GreensFunctionCalculator(
+            hamiltonian=singular_hamiltonian,
+            identity=identity,
+            symbolic=False,
+            energy_level=omega,
+            broadening=eta,
+            retarded=True
+        )
 
-    with pytest.raises(ValueError, match="not invertible"):
+    # Then, the numeric singularity error
+    with pytest.raises(ValueError, match=r"Matrix is not invertible"):
         calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
 
 def test_symbolic_noninvertible_matrix_raises():

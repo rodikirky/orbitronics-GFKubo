@@ -424,11 +424,16 @@ class GreensFunctionCalculator:
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(k)
 
         root_solutions = []
+        non_empty_flag = 0  # count how many eigenvalues have non-empty solution sets
         for i, lambda_i in enumerate(eigenvalues):
             # simplify for readability and solving
             lambda_i = sp.simplify(lambda_i)
+            if self.verbose:
+                print(f"\nThe free symbols in eigenvalue λ[{i}] are: {lambda_i.free_symbols}.")
             # a) Short circuit if λ_i has no dependence on k_var
             if k_var not in lambda_i.free_symbols:
+                if self.verbose:
+                    print(f"This set does not include the variable we solve for: {k_var}.")
                 # check for all-together vanishing eigenvalue
                 if lambda_i.equals(0) or lambda_i.is_zero:
                     raise ValueError(
@@ -439,6 +444,7 @@ class GreensFunctionCalculator:
                 # Return empty solution set
                 root_solutions.append((f"lambda_{i}=0", sp.FiniteSet()))
                 continue
+            non_empty_flag = 1
 
             # b) Warn if λ_i is not polynomial in k_var
             if not lambda_i.is_polynomial(k_var):
@@ -478,6 +484,9 @@ class GreensFunctionCalculator:
                 root_solutions.append(
                     (f"lambda_{i}=0", f"Error during solving: {e}"))
 
+        if non_empty_flag == 0:
+            warnings.warn(
+                "None of the eigenvalues depend on the variable to solve for; all solution sets are empty.")
         if self.verbose:
             print("\nRoots of the Hamiltonian:")
             pprint(root_solutions, use_unicode=True)
@@ -564,6 +573,19 @@ class GreensFunctionCalculator:
 
         _, eigenvalues, _ = self.compute_eigen_greens_inverse(kvec)
 
+        if self.verbose:
+            if z_diff_sign == 1:
+                print(f"\nThe Fourier integral over {k_dir} is computed using contour integration,") 
+                print("utilizing Jordan's Lemma and the Residue Theorem.")
+                print("The contour is closed in the upper half-plane, since z>z'.")
+            elif z_diff_sign == -1:
+                print(f"\nThe Fourier integral over {k_dir} is computed using contour integration,") 
+                print("utilizing Jordan's Lemma and the Residue Theorem.")
+                print("The contour is closed in the lower half-plane, since z<z'.")
+            else:
+                warnings.warn(
+                    "The sign of z-z' cannot be determined. More information is needed for contour integration")
+
         # List for the diagonal entries of G(z,z'), each the solution of an integral
         G_z_diag = []
         has_contributions = False
@@ -572,32 +594,44 @@ class GreensFunctionCalculator:
             contrib, contributed_any = self._residue_sum_for_lambda(
                 lambda_i, z, z_prime, k_dir, z_diff_sign, case_assumptions=case_assumptions)
             has_contributions = has_contributions or contributed_any
-            G_z_diag.append(contrib if contributed_any else 0)
+            assert contrib == 0 if not contributed_any else True, "If no poles contributed, the contribution must be zero."
+            G_z_diag.append(contrib)
 
             if self.verbose:
-                print(f"\nThe eigenvalue λ_{i}(k) = {lambda_i}")
+                print(f"\nThe eigenvalue λ_{i+1}(k) = {lambda_i}")
                 print(f"contributes to the residue sum with: {contrib}") if contrib != 0 else print("does not contribute to the residue sum.")
 
         if not has_contributions:
             warnings.warn(
                 "No poles passed the sign check; returning zero Green's function.")
-            return sp.zeros(len(self.I))
+            assert sp.diag(*G_z_diag) == sp.zeros(self.d), "Expected zeros on the diagonal if no poles contributed."
 
-        if all((val.is_zero is True) for val in G_z_diag):
+        elif all((val.is_zero is True) for val in G_z_diag):
             warnings.warn(
-                "Green's function is identically zero: all residue contributions canceled or skipped.")
+                "Green's function is identically zero: all residue contributions canceled out.")
+            assert has_contributions == True, "Expected has_contributions=True if some poles contributed, otherwise earlier warning should have been triggered."
 
         G_z = sp.diag(*G_z_diag)
 
         if self.verbose:
-            
-            print(f"The real space {self.green_type} Green's function")
+            print(f"\nThe real space {self.green_type} Green's function in the last spatial dimension is:")
+            print(f"G({z}, {z_prime}) = {G_z}")
+            print(f"where it is assumed that z {'>' if z_diff_sign==1 else '<'} z'.")
+            print("If different assumptions on z and z' are needed, rerun with the appropriate z_diff_sign parameter.")
+            print(f"with additional assumptions: {case_assumptions}") if case_assumptions else print("with no additional case assumptions fed to the solver.")
+            print("If assumptions need to be altered, rerun with the appropriate case_assumptions parameter.")
+            if not full_matrix:
+                print("\nNote: Only diagonal entries are returned by default.")  
+
         # Note: Currently returning only diagonal Green's function G(z, z′)
         # Full matrix reconstruction from eigenbasis can be added if needed:
         if full_matrix:
             eigenbasis, _, _ = self.compute_eigen_greens_inverse(kvec)
             G_full = eigenbasis @ G_z @ invert_matrix(
                 eigenbasis, symbolic=True)
+            if self.verbose:
+                print("\nThe full Green's function matrix in the original basis is:")
+                print(f"G({z}, {z_prime}) = {G_full}")
             return G_full
 
         return G_z
@@ -687,6 +721,13 @@ class GreensFunctionCalculator:
         ## store (k0, m, res_expr) to resolve ambiguity:
         #ambiguous = []
 
+        # Short-circuit if λ_i has no dependence on kz_sym:
+        if kz_sym not in lambda_i.free_symbols:
+                if self.verbose:
+                    print(f"The eigenvalue {lambda_i} does not depend on the integration variable: {kz_sym}.")
+                contrib = 0
+                return contrib, contributed_any
+
         z_diff = z - z_prime
         phase = sp.exp(sp.I * kz_sym * z_diff)
 
@@ -703,19 +744,6 @@ class GreensFunctionCalculator:
                     f"\nUnevaluated integral expression for G(k) diagonal entry: {expr}")
                 print("The Residue Theorem was not applied.")
             return expr, contributed_any
-
-        if self.verbose:
-            if z_diff_sign == 1:
-                print(f"\nThe Fourier integral over {kz_sym} is computed using contour integration,") 
-                print("utilizing Jordan's Lemma and the Residue Theorem.")
-                print("The contour is closed in the upper half-plane, since z>z'.")
-            elif z_diff_sign == -1:
-                print(f"\nThe Fourier integral over {kz_sym} is computed using contour integration,") 
-                print("utilizing Jordan's Lemma and the Residue Theorem.")
-                print("The contour is closed in the lower half-plane, since z<z'.")
-            else:
-                warnings.warn(
-                    "The sign of z-z' cannot be determined. More information is needed for contour integration")
 
         # dict {root: multiplicity}
         roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)
