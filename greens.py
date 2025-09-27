@@ -693,6 +693,14 @@ class GreensFunctionCalculator:
 
     # --- Internal utilities ---
 
+    def _halfplane_choice(z, z_prime):
+        # numeric-only decision; returns +1, -1, 0, or None (unknown)
+        if z.is_number and z_prime.is_number:
+            if z > z_prime:  return +1
+            if z < z_prime:  return -1
+            return 0
+        return None
+
     def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign, case_assumptions: list = None):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
