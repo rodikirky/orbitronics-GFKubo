@@ -604,7 +604,7 @@ class GreensFunctionCalculator:
         if not has_contributions:
             warnings.warn(
                 "No poles passed the sign check; returning zero Green's function.")
-            assert sp.diag(*G_z_diag) == sp.zeros(self.d), "Expected zeros on the diagonal if no poles contributed."
+            assert sp.diag(*G_z_diag) == sp.zeros(self.N), "Expected zeros on the diagonal if no poles contributed."
 
         elif all((val.is_zero is True) for val in G_z_diag):
             warnings.warn(
