@@ -442,7 +442,7 @@ def test_symbolic_verbose_output(capsys):
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
     with pytest.warns(UserWarning, match="None of the eigenvalues"):
-        calculator.compute_roots_greens_inverse(solve_for=0)
+        calculator.compute_roots_greens_inverse()
     with pytest.warns(UserWarning, match="No poles passed"):
         # There are no poles, so we expect a warning here
         calculator.compute_rspace_greens_symbolic_1d(z, z_prime)

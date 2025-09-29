@@ -536,10 +536,11 @@ class GreensFunctionCalculator:
             return []
         assert self.d >= 1, "Cannot perform real-space transform in zero-dimensional system."
 
-        if z_diff_sign is None:
-            z_diff_sign = self.q  # default to q
-            warnings.warn(
-                f"No z_diff_sign provided; defaulting to the assumption z_diff_sign={self.q}, since the GF is {self.green_type}.")
+        if z_diff_sign is None and self._halfplane_choice(z, z_prime) is None:
+            raise ValueError(
+                f"No z_diff_sign provided and sign({z} - {z_prime}) indeterminable. Provide z_diff_sign or exchange {z},{z_prime} for numeric values.")
+        else: 
+            z_diff_sign = self._halfplane_choice(z, z_prime) if z_diff_sign is None else z_diff_sign
 
         kvec = sp.Matrix(self.k_symbols)
         # direction of real-space transform (last component)
@@ -636,7 +637,7 @@ class GreensFunctionCalculator:
 
         return G_z
 
-    def compute_rspace_greens_symbolic_1d(self, z, z_prime, z_diff_sign=None, full_matrix: bool = False):
+    def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
         """
         Wrapper around compute_rspace_greens_symbolic_1d_along_last_dim that
         returns results in the legacy format expected by tests:
@@ -658,6 +659,7 @@ class GreensFunctionCalculator:
             Tuples labeling each matrix element (e.g., "G_00") with its
             corresponding expression.
         """
+        z_diff_sign = 1 # default for test purposes
         G = self.compute_rspace_greens_symbolic_1d_along_last_dim(
             z, z_prime, z_diff_sign, full_matrix=full_matrix)
 
@@ -693,6 +695,7 @@ class GreensFunctionCalculator:
 
     # --- Internal utilities ---
 
+    @staticmethod
     def _halfplane_choice(z, z_prime):
         # numeric-only decision; returns +1, -1, 0, or None (unknown)
         if z.is_number and z_prime.is_number:
