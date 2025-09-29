@@ -1,11 +1,19 @@
+"""
+Green’s function calculator (symbolic & numeric).
+
+Notes
+-----
+• Ambiguity handling uses an AmbiguityLedger (see `ambiguity.py` or docs/ambiguity.md).
+• This module only *emits* logs; configure logging in your runner (see docs/logging.md).
+"""
 import numpy as np
 import sympy as sp
 from sympy import pprint
 from typing import Callable, Union
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 import warnings
-import logging
 from ambiguity import Ambiguity, AmbiguityLedger
+import logging
 log = logging.getLogger(__name__)
 
 # reconstruction tolerance for eigen-decomp checks
@@ -525,15 +533,25 @@ class GreensFunctionCalculator:
         warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].")
         return []
     
-    # --- Ambiguity helpers ---
+    # region Ambiguity helpers ---
 
     def _reset_ambiguities(self): self._ledger.reset()
     def _add_amb(self, **kw): self._ledger.add(**kw)
-    def get_ambiguities(self): return self._ledger.items()
+    def get_ambiguities(self):
+        """
+        Return a snapshot of ambiguity items collected during the last compute call.
+
+        See also
+        --------
+        ambiguity.Ambiguity : schema of a single ambiguity item
+        ambiguity.AmbiguityLedger : collection semantics and formatting
+        docs/ambiguity.md : background, examples, and resolution patterns
+        """
+        return self._ledger.items()
     def format_ambiguities(self): return self._ledger.format()
+    # endregion
 
-
-    # --- Internal utilities ---
+    # region Internal utilities ---
 
     @staticmethod
     def _halfplane_choice(z, z_prime):
@@ -829,3 +847,4 @@ class GreensFunctionCalculator:
         contrib = sp.I * residue_sum  # factor of i from residue theorem
 
         return contrib, contributed_any
+    # endregion
