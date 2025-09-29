@@ -221,7 +221,7 @@ def test_symbolic_eigenvalues_shape_and_form():
         verbose=False
     )
     k = calc.k_symbols
-    _, eigenvalues, _ = calc.compute_eigen_greens_inverse(k)
+    _, eigenvalues, _ = calc._eigenvalues_greens_inverse(k)
     assert isinstance(eigenvalues, (list, sp.Matrix))
     assert all(isinstance(ev, sp.Basic) for ev in eigenvalues)
     assert len(eigenvalues) == 2
@@ -417,7 +417,7 @@ def test_numeric_verbose_output(capsys):
     
     momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
     calculator.compute_kspace_greens_function(momentum)
-    calculator. compute_eigen_greens_inverse(momentum)
+    calculator. _eigenvalues_greens_inverse(momentum)
 
     captured = capsys.readouterr()
     assert "Computing Green's function at momentum k" in captured.out
