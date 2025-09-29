@@ -491,8 +491,6 @@ class GreensFunctionCalculator:
             Tuples labeling each matrix element (e.g., "G_00") with its
             corresponding expression.
         """
-        self._reset_ambiguities()
-
         z_diff_sign = 1 # default for test purposes
         G = self.compute_rspace_greens_symbolic_1d_along_last_dim(
             z, z_prime, z_diff_sign, full_matrix=full_matrix)
@@ -569,8 +567,6 @@ class GreensFunctionCalculator:
         ValueError
             If called in numeric mode without a specific momentum value.
         """
-        self._reset_ambiguities()
-
         if momentum is None:
             if self.symbolic:
                 momentum = sp.Matrix(self.k_symbols)
