@@ -4,6 +4,10 @@ from sympy import pprint
 from typing import Callable, Union
 from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 import warnings
+import logging
+from ambiguity import Ambiguity, AmbiguityLedger
+log = logging.getLogger(__name__)
+
 # reconstruction tolerance for eigen-decomp checks
 NUM_EIG_TOL = 1e-8
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
@@ -98,6 +102,8 @@ class GreensFunctionCalculator:
 
         self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
 
+        self._ledger = AmbiguityLedger()
+
     def info(self):
         """
         Print a summary of the internal configuration of this calculator instance.
@@ -141,6 +147,8 @@ class GreensFunctionCalculator:
         ValueError
             If called in numeric mode without a specific momentum value.
         """
+        self._reset_ambiguities()
+
         if momentum is None:
             if self.symbolic:
                 momentum = sp.Matrix(self.k_symbols)
@@ -208,6 +216,8 @@ class GreensFunctionCalculator:
         ValueError
             If called in numeric mode without a specific momentum value.
         """
+        self._reset_ambiguities()
+
         if momentum is None:
             if self.symbolic:
                 momentum = sp.Matrix(self.k_symbols)
@@ -395,6 +405,8 @@ class GreensFunctionCalculator:
         ValueError
             If `solve_for` is out of range [0, d-1].
         """
+        self._reset_ambiguities()
+
         if not self.symbolic:
             warnings.warn(
                 "Root solving is only supported in symbolic mode. Enable symbolic=True.")
@@ -526,6 +538,8 @@ class GreensFunctionCalculator:
         G(z, z′): matrix;
             The symbolic real-space Green's function matrix.
         """
+        self._reset_ambiguities()
+
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
         if case_assumptions is None:
             case_assumptions = []
@@ -659,6 +673,8 @@ class GreensFunctionCalculator:
             Tuples labeling each matrix element (e.g., "G_00") with its
             corresponding expression.
         """
+        self._reset_ambiguities()
+        
         z_diff_sign = 1 # default for test purposes
         G = self.compute_rspace_greens_symbolic_1d_along_last_dim(
             z, z_prime, z_diff_sign, full_matrix=full_matrix)
@@ -692,6 +708,13 @@ class GreensFunctionCalculator:
 
         warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].")
         return []
+    
+    # --- Ambiguity helpers ---
+    def _reset_ambiguities(self): self._ledger.reset()
+    def _add_amb(self, **kw): self._ledger.add(**kw)
+    def get_ambiguities(self): return self._ledger.items()
+    def format_ambiguities(self): return self._ledger.format()
+
 
     # --- Internal utilities ---
 
