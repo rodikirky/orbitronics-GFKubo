@@ -1,10 +1,25 @@
+# region Imports & metadata
 """
-Green’s function calculator (symbolic & numeric).
+Green’s function utilities: k-space and real-space calculations.
+Both symbolic (SymPy) and numeric (NumPy) backends supported.
+
+Contents
+--------
+- GreensFunctionCalculator : main public class
+- (internal) _helpers      : implementation details
+
+Usage
+-----
+>>> G = GreensFunctionCalculator(...).compute_kspace_greens_function(k)
 
 Notes
 -----
-• Ambiguity handling uses an AmbiguityLedger (see `ambiguity.py` or docs/ambiguity.md).
-• This module only *emits* logs; configure logging in your runner (see docs/logging.md).
+- Logging: this library emits logs; your runner configures handlers.
+- Ambiguity: see AmbiguityLedger for collecting/formatting cases.
+
+Public exports
+--------------
+__all__ = ["GreensFunctionCalculator"]
 """
 import numpy as np
 import sympy as sp
@@ -14,14 +29,20 @@ from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
 import warnings
 from ambiguity import Ambiguity, AmbiguityLedger
 import logging
+
+__all__ = ["GreensFunctionCalculator"]
+# endregion
+
+# region Constants & module-level config
 log = logging.getLogger(__name__)
 
-# reconstruction tolerance for eigen-decomp checks
-NUM_EIG_TOL = 1e-8
+NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
+# endregion
 
-
+# region GreensFunctionCalculator (public class)
 class GreensFunctionCalculator:
+    # region Construction & dunder methods
     def __init__(self,
                  hamiltonian: Callable[[Union[list, np.ndarray, sp.Matrix]], Union[np.ndarray, sp.Matrix]],
                  identity: Union[np.ndarray, sp.Matrix],
@@ -37,17 +58,38 @@ class GreensFunctionCalculator:
                  dimension: int = 3,
                  verbose: bool = False):
         """
-        A calculator for Green's functions.
+        Calculator for k-space and real-space Green’s functions.
 
-        Parameters:
-        - hamiltonian: a function that takes momentum k and returns the Hamiltonian matrix
-        - identity: identity matrix (NxN) for the appropriate backend, where N is the band size
-        - symbolic: whether to use symbolic (sympy) or numeric (numpy) mode
-        - energy_level: scalar ω
-        - infinitestimal: small η > 0 to define the imaginary part
-        - retarded: if True computes retarded Green's function; else advanced
-        - dimension: spatial dimension of the system (1, 2, or 3), defaults to 3
-        - verbose: if True, prints intermediate matrix states for debugging
+        Public API (stable)
+        -------------------
+        - compute_kspace_greens_function(k) -> MatrixLike
+        - compute_roots_greens_inverse(solve_for=None) -> list[RootInfo]
+        - compute_rspace_greens_symbolic_1d(x, ...) -> Expr | Array
+        - __repr__(), __str__()
+
+        Parameters
+        ----------
+        hamiltonian: Callable[[ArrayLike], MatrixLike]
+            a function that takes momentum k and returns the Hamiltonian matrix
+        identity: MatrixLike
+            identity matrix (NxN) for the appropriate backend, where N is the band size
+        symbolic: Boolean
+            whether to use SymPy as backend (symbolic=True) or NumPy (symbolic=False)
+        energy_level: Float or sp.Symbol
+            scalar ω
+        infinitestimal: Float or sp.Symbol, positive
+            small η > 0 to define the imaginary part
+        retarded: Boolean
+            if True computes retarded Green's function; else advanced
+        dimension: Int
+            spatial dimension of the system (1, 2, or 3), defaults to 3
+        verbose: Boolean
+            if True, prints intermediate matrix states for debugging
+
+        Notes
+        -----
+        Private helpers are underscore-prefixed and may change without notice.
+        See also: `get_ambiguities()`, `format_ambiguities()` for diagnostics.
         """
         self.H = hamiltonian
         if not callable(self.H):
@@ -171,10 +213,9 @@ class GreensFunctionCalculator:
             )
         except Exception:
             return f"{self.__class__.__name__} (unprintable)"
+    # endregion
 
-
-    # --- GF computation in k-space ---
-
+    # region k-space Green’s function
     def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix] = None) -> Union[np.ndarray, sp.Matrix]:
         """
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
@@ -238,7 +279,9 @@ class GreensFunctionCalculator:
         log.debug("Inverted G^{-1}(k) successfully.")        
 
         return G_k
+    # endregion
 
+    # region Root solving
     def compute_roots_greens_inverse(self, solve_for: int = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         """
         Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
@@ -368,8 +411,9 @@ class GreensFunctionCalculator:
             pprint(root_solutions, use_unicode=True)
 
         return root_solutions
+    # endregion
 
-    # --- Fourier transformation to real space ---
+    # region Real-space Fourier transform
     # -- Symbolic 1D real-space transform --
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
                                                          z: Union[float, sp.Basic],
@@ -570,8 +614,9 @@ class GreensFunctionCalculator:
 
         warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].")
         return []
-    
-    # region Ambiguity helpers ---
+    # endregion
+
+    # region Ambiguity helpers 
     """
     For info see:
     --------
@@ -587,7 +632,7 @@ class GreensFunctionCalculator:
     def format_ambiguities(self): return self._ledger.format()
     # endregion
 
-    # region Internal utilities ---
+    # region Internal utilities
 
     @staticmethod
     def _halfplane_choice(z, z_prime):
@@ -884,3 +929,5 @@ class GreensFunctionCalculator:
 
         return contrib, contributed_any
     # endregion
+
+# endregion
