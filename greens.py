@@ -156,6 +156,7 @@ class GreensFunctionCalculator:
             If called in numeric mode without a specific momentum value.
         """
         self._reset_ambiguities()
+        log.debug("k-space G: momentum=%s (symbolic=%s)", momentum, self.symbolic)
 
         if momentum is None:
             if self.symbolic:
@@ -181,23 +182,14 @@ class GreensFunctionCalculator:
         if H_k.shape != (self.N, self.N):
             raise ValueError(
                 f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+        log.debug("H(k) built, shape=%s", H_k.shape)
 
         imaginary_unit = sp.I if self.symbolic else 1j
         G_inv = (self.omega + self.q * self.eta *
                  imaginary_unit) * self.I - H_k
+        log.debug("Formed G^{-1}(k) = (ω + %siη)I - H(k)", "+" if self.q==1 else "-")
         G_k = invert_matrix(G_inv, symbolic=self.symbolic)
-
-        if self.verbose:
-            print("\nComputing Green's function at momentum k")
-            print("\nwith k = ", momentum)
-            print_symbolic_matrix(
-                H_k, name="H(k)") if self.symbolic else print("H(k) =\n", H_k)
-            if self.q == 1:
-                print_symbolic_matrix(
-                    G_inv, name="( ω + iη - H(k) )") if self.symbolic else print("( ω ± iη - H(k) ) =\n", G_inv)
-            else:
-                print_symbolic_matrix(
-                    G_inv, name="( ω - iη - H(k) )") if self.symbolic else print("( ω ± iη - H(k) ) =\n", G_inv)
+        log.debug("Inverted G^{-1}(k) successfully.")        
 
         return G_k
 
