@@ -21,9 +21,9 @@ class OrbitronicHamiltonianSystem:
                  # if verbose=True, intermediate steps will be printed out
                  verbose: bool = False):
         """
-        OrbitronicHamiltonianSystem represents an orbitronic single-particle quantum system 
+        OrbitronicHamiltonianSystem represents an orbitronic single-particle (non-interacting) quantum system 
         in either a symbolic or numeric mode with multiple angular momentum channels (L=1) represented
-        by the default 3x3 angular momentum matrices.
+        by the standard 3x3 angular momentum matrices.
 
         Supports computation of angular momentum-coupled potentials and Hamiltonians
         in a specified basis. Accepts both symbolic expressions (via SymPy) and 
