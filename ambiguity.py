@@ -1,3 +1,26 @@
+'''Ambiguity ledger (what it is, how to use it)
+--------------------------------------------
+The greens function calculator records places where a symbolic decision could not be made
+unambiguously (e.g., undecidable sign(Im k₀), non-polynomial λᵢ(k), ill-conditioned
+eigenbasis). Each public compute method calls `_reset_ambiguities()` on entry and
+adds entries via `_add_amb(...)`.
+
+• Inspect: after a compute call, use `get_ambiguities()` to obtain a list of
+  `Ambiguity` items (see ambiguity.py). Call `format_ambiguities()` for a
+  human-readable summary.
+
+• Typical use: if ambiguities are present, present the options to the user or
+  re-run with additional assumptions (e.g., SymPy predicates like
+  `sp.Q.positive(omega - V_F)`) or with an explicit `z_diff_sign`. The ledger
+  is the programmatic source of truth for what needs disambiguation; logging
+  is only informational.
+
+API:
+  - self._reset_ambiguities()    # clear ledger (done automatically)
+  - self._add_amb(**fields)      # internal use at ambiguity hotspots
+  - self.get_ambiguities() -> list[Ambiguity]
+  - self.format_ambiguities() -> str
+  '''
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 import sympy as sp
