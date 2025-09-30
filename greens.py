@@ -50,9 +50,13 @@ class GreensFunctionCalculator:
         - verbose: if True, prints intermediate matrix states for debugging
         """
         self.H = hamiltonian
+        if not callable(self.H):
+            raise ValueError(
+                "Hamiltonian must be a callable function H(k).")
         self.I = identity
         # validate identity
         if not (hasattr(self.I, "shape") and self.I.shape[0] == self.I.shape[1]):
+            log.error("Invalid identity shape: %s", getattr(self.I, "shape", None))
             raise ValueError(f"Identity must be a square matrix.")
         # band size, e.g., 2 for spin-1/2 systems
         self.N = int(self.I.shape[0])
@@ -65,6 +69,7 @@ class GreensFunctionCalculator:
             self.I = np.asarray(np.array(self.I.tolist(), dtype=complex))
 
         self.omega = energy_level
+
         if broadening is not None:
             self.eta = broadening
             if self.eta < 0:
@@ -72,7 +77,6 @@ class GreensFunctionCalculator:
             elif broadening == 0:
                 warnings.warn(
                     "Broadening η is zero; Green's function may be ill-defined at poles.")
-
         elif self.symbolic:
             self.eta = sp.symbols("eta", positive=True)
             warnings.warn("No broadening η provided; using symbolic η > 0.")
@@ -80,11 +84,13 @@ class GreensFunctionCalculator:
             self.eta = INFINITESIMAL
             warnings.warn(
                 f"No broadening η provided; defaulting to η={self.eta}.")
+            
         self.q = 1 if retarded else -1
 
         # Choice of dimension determines default momentum symbols:
         self.d = int(dimension)
         if self.d not in (1, 2, 3):
+            log.error("Unsupported dimension d=%s (allowed: 1,2,3)", self.d)
             raise ValueError(
                 f"Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
 
@@ -110,26 +116,62 @@ class GreensFunctionCalculator:
 
         self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
 
+        log.debug("Init %r", self) # developer snapshot for logs
+        log.info("Snapshot:\n%s", self) # readable banner for operators/notebooks
         self._ledger = AmbiguityLedger()
+    
+    def __repr__(self):
+        try:
+            mode = "sym" if self.symbolic else "num"
+            I_shape = getattr(self.I, "shape", None)
+            I_summary = f"{type(self.I).__name__}{I_shape}" if I_shape is not None else type(self.I).__name__
+            H_name = getattr(self.H, "__name__", None) or type(self.H).__name__
+            try:
+                if isinstance(self.k_symbols, (list, tuple)) and self.k_symbols:
+                    k_summary = ",".join(str(s) if s is not None else "∅" for s in self.k_symbols)
+                else:
+                    k_summary = "∅"
+            except Exception:
+                k_summary = "∅"
+            return (f"{self.__class__.__name__}("
+                    f"mode={mode}, N={self.N}, d={self.d}, "
+                    f"ω={self.omega}, η={self.eta}, type={self.green_type}, "
+                    f"I={I_summary}, H={H_name}, k={k_summary})")
+        except Exception:
+            return f"{self.__class__.__name__}(unprintable; id=0x{id(self):x})"
 
-    def info(self):
-        """
-        Print a summary of the internal configuration of this calculator instance.
-        """
-        print("\nGreensFunctionCalculator configuration:")
-        print("======================================")
-        mode = "Symbolic" if self.symbolic else "Numeric"
-        print(f"Computation mode           : {mode}")
-        print(f"Verbose mode               : {self.verbose}")
-        print(f"Energy ω                   : {self.omega}")
-        print(f"Infinitesimal broadening η : {self.eta}")
-        print(f"Green's function type      : {self.green_type}")
-        print(f"Dimension d                : {self.d}")
-        print(f"Band size N                : {self.N}")
-        print(
-            f"H(k) callable              : {'Yes' if callable(self.H) else 'No'}")
-        print(f"Momentum symbols           : {self.k_symbols}")
-        print("======================================\n")
+
+    def __str__(self):
+        try:
+            mode = "symbolic" if self.symbolic else "numeric"
+            I_shape = getattr(self.I, "shape", None)
+            identity_summary = f"{type(self.I).__name__}{I_shape}" if I_shape is not None else type(self.I).__name__
+            # k symbols line (optional)
+            k_line = ""
+            try:
+                ks = self.k_symbols
+                if isinstance(ks, (list, tuple)) and ks:
+                    items = []
+                    for s in ks[:8]:
+                        try:
+                            items.append(str(s) if s is not None else "∅")
+                        except Exception:
+                            items.append("<unprintable>")
+                    suffix = " …" if len(ks) > 8 else ""
+                    k_line = f"\n  k symbols: {', '.join(items)}{suffix}"
+            except Exception:
+                k_line = ""
+            return (
+                "GreensFunctionCalculator\n"
+                f"  mode: {mode}\n"
+                f"  N×N: {self.N}×{self.N}   d: {self.d}\n"
+                f"  ω: {self.omega}   η: {self.eta}   type: {self.green_type}\n"
+                f"  identity: {identity_summary}"
+                f"{k_line}"
+            )
+        except Exception:
+            return f"{self.__class__.__name__} (unprintable)"
+
 
     # --- GF computation in k-space ---
 
@@ -162,6 +204,7 @@ class GreensFunctionCalculator:
             if self.symbolic:
                 momentum = sp.Matrix(self.k_symbols)
             else:
+                log.error("Numeric mode called without momentum.")
                 raise ValueError(
                     "Momentum must be provided in numeric mode (symbolic=False).")
         if self.d != 1:
@@ -169,9 +212,11 @@ class GreensFunctionCalculator:
             momentum = sanitize_vector(momentum, self.symbolic)
             # Ensure correct momentum dimensionality
             if len(momentum) != self.d:
+                log.error("Momentum dimension mismatch: expected %d, got %d", self.d, len(momentum))
                 raise ValueError(
                     f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
-
+            
+        log.debug("Calling H(momentum) for %s; k=%s", getattr(self.H, "__name__", type(self.H).__name__), momentum)  
         H_k = self.H(momentum)  # Hamiltonian at momentum k
         # ensure indexable even in single-channel case
         H_k = [H_k] if self.N == 1 else H_k
@@ -180,6 +225,7 @@ class GreensFunctionCalculator:
         H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(
             H_k, dtype=complex)
         if H_k.shape != (self.N, self.N):
+            log.error("H(k) wrong shape: expected (%d,%d), got %s", self.N, self.N, H_k.shape)
             raise ValueError(
                 f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
         log.debug("H(k) built, shape=%s", H_k.shape)
@@ -526,20 +572,18 @@ class GreensFunctionCalculator:
         return []
     
     # region Ambiguity helpers ---
-
-    def _reset_ambiguities(self): self._ledger.reset()
+    """
+    For info see:
+    --------
+    ambiguity.Ambiguity : schema of a single ambiguity item
+    ambiguity.AmbiguityLedger : collection semantics and formatting
+    docs/ambiguity.md : background, examples, and resolution patterns
+    """
+    def _reset_ambiguities(self): 
+        self._ledger.reset()
+        log.debug("Ambiguity ledger reset.")
     def _add_amb(self, **kw): self._ledger.add(**kw)
-    def get_ambiguities(self):
-        """
-        Return a snapshot of ambiguity items collected during the last compute call.
-
-        See also
-        --------
-        ambiguity.Ambiguity : schema of a single ambiguity item
-        ambiguity.AmbiguityLedger : collection semantics and formatting
-        docs/ambiguity.md : background, examples, and resolution patterns
-        """
-        return self._ledger.items()
+    def get_ambiguities(self): return self._ledger.items()
     def format_ambiguities(self): return self._ledger.format()
     # endregion
 
