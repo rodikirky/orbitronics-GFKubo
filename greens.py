@@ -16,6 +16,7 @@ Notes
 -----
 - Logging: this library emits logs; your runner configures handlers.
 - Ambiguity: see AmbiguityLedger for collecting/formatting cases.
+             more info in docs/ambiguity.md
 
 Public exports
 --------------
@@ -24,8 +25,8 @@ __all__ = ["GreensFunctionCalculator"]
 import numpy as np
 import sympy as sp
 from sympy import pprint
-from typing import Callable, Union
-from utils import invert_matrix, print_symbolic_matrix, sanitize_vector
+from typing import Callable, Union, Sequence
+from utils import invert_matrix, sanitize_vector, sanitize_matrix
 import warnings
 from ambiguity import Ambiguity, AmbiguityLedger
 import logging
@@ -36,6 +37,9 @@ __all__ = ["GreensFunctionCalculator"]
 # region Constants & module-level config
 log = logging.getLogger(__name__)
 
+MatrixLike = Union[np.ndarray, sp.Matrix]
+ArrayLike  = Union[Sequence[float], np.ndarray, sp.Matrix]
+
 NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 # endregion
@@ -44,8 +48,8 @@ INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 class GreensFunctionCalculator:
     # region Construction & dunder methods
     def __init__(self,
-                 hamiltonian: Callable[[Union[list, np.ndarray, sp.Matrix]], Union[np.ndarray, sp.Matrix]],
-                 identity: Union[np.ndarray, sp.Matrix],
+                 hamiltonian: Callable[[ArrayLike], MatrixLike],
+                 identity: MatrixLike,
                  symbolic: bool,
                  # omega
                  energy_level: Union[float, sp.Basic],
@@ -70,14 +74,14 @@ class GreensFunctionCalculator:
         Parameters
         ----------
         hamiltonian: Callable[[ArrayLike], MatrixLike]
-            a function that takes momentum k and returns the Hamiltonian matrix
+            a function that takes momentum k and returns the NxN Hamiltonian matrix
         identity: MatrixLike
             identity matrix (NxN) for the appropriate backend, where N is the band size
         symbolic: Boolean
             whether to use SymPy as backend (symbolic=True) or NumPy (symbolic=False)
         energy_level: Float or sp.Symbol
             scalar ω
-        infinitestimal: Float or sp.Symbol, positive
+        broadening: Float or sp.Symbol, positive
             small η > 0 to define the imaginary part
         retarded: Boolean
             if True computes retarded Green's function; else advanced
@@ -118,14 +122,14 @@ class GreensFunctionCalculator:
                 raise ValueError("Broadening η must not be negative.")
             elif broadening == 0:
                 warnings.warn(
-                    "Broadening η is zero; Green's function may be ill-defined at poles.")
+                    "Broadening η is zero; Green's function may be ill-defined at poles.", stacklevel=2)
         elif self.symbolic:
             self.eta = sp.symbols("eta", positive=True)
-            warnings.warn("No broadening η provided; using symbolic η > 0.")
+            warnings.warn("No broadening η provided; using symbolic η > 0.", stacklevel=2)
         else:
             self.eta = INFINITESIMAL
             warnings.warn(
-                f"No broadening η provided; defaulting to η={self.eta}.")
+                f"No broadening η provided; defaulting to η={self.eta}.", stacklevel=2)
             
         self.q = 1 if retarded else -1
 
@@ -158,7 +162,7 @@ class GreensFunctionCalculator:
 
         self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
 
-        log.debug("Init %r", self) # developer snapshot for logs
+        log.debug("Initialized %r", self) # developer snapshot for logs
         log.info("Snapshot:\n%s", self) # readable banner for operators/notebooks
         self._ledger = AmbiguityLedger()
     
@@ -216,14 +220,14 @@ class GreensFunctionCalculator:
     # endregion
 
     # region k-space Green’s function
-    def compute_kspace_greens_function(self, momentum: Union[np.ndarray, sp.Matrix] = None) -> Union[np.ndarray, sp.Matrix]:
+    def compute_kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
         """
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
         (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
 
         Parameters
         ----------
-        momentum: np.ndarray or sp.Matrix
+        momentum: ArrayLike or None
             value at which the Hamiltonian is evaluated
             If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
 
@@ -248,27 +252,12 @@ class GreensFunctionCalculator:
                 log.error("Numeric mode called without momentum.")
                 raise ValueError(
                     "Momentum must be provided in numeric mode (symbolic=False).")
-        if self.d != 1:
-            # Sanitize momentum vector input for correct format
-            momentum = sanitize_vector(momentum, self.symbolic)
-            # Ensure correct momentum dimensionality
-            if len(momentum) != self.d:
-                log.error("Momentum dimension mismatch: expected %d, got %d", self.d, len(momentum))
-                raise ValueError(
-                    f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
+        k_vec = sanitize_vector(momentum, self.symbolic, expected_dim=self.d) # ensure iterable and correct type and shape
+        k_for_H = (k_vec[0] if self.d == 1 else k_vec) # scalar only for H(k), since H expects scalar, if d=1
             
-        log.debug("Calling H(momentum) for %s; k=%s", getattr(self.H, "__name__", type(self.H).__name__), momentum)  
-        H_k = self.H(momentum)  # Hamiltonian at momentum k
-        # ensure indexable even in single-channel case
-        H_k = [H_k] if self.N == 1 else H_k
-
-        # convert to backend-specific matrix/array
-        H_k = sp.Matrix(H_k) if self.symbolic else np.asarray(
-            H_k, dtype=complex)
-        if H_k.shape != (self.N, self.N):
-            log.error("H(k) wrong shape: expected (%d,%d), got %s", self.N, self.N, H_k.shape)
-            raise ValueError(
-                f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+        log.debug("Calling H(k) for %s; k=%s", getattr(self.H, "__name__", type(self.H).__name__), k_for_H)  
+        H_k = self.H(k_for_H)  # Hamiltonian at momentum k
+        H_k = sanitize_matrix(H_k, self.symbolic, expected_size=self.N)
         log.debug("H(k) built, shape=%s", H_k.shape)
 
         imaginary_unit = sp.I if self.symbolic else 1j
@@ -316,7 +305,7 @@ class GreensFunctionCalculator:
 
         if not self.symbolic:
             warnings.warn(
-                "Root solving is only supported in symbolic mode. Enable symbolic=True.")
+                "Root solving is only supported in symbolic mode. Enable symbolic=True.", stacklevel=2)
             return []  # no error raised but empty list returned
 
         if solve_for is None:
@@ -359,7 +348,7 @@ class GreensFunctionCalculator:
                         f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
                 # λ_i is constant in the variable to solve for
                 warnings.warn(
-                    f"The {i}th eigenvalue lambda_{i}={lambda_i} has no dependence {k_var}; returning empty solution set.")
+                    f"The {i}th eigenvalue lambda_{i}={lambda_i} has no dependence {k_var}; returning empty solution set.", stacklevel=2)
                 # Return empty solution set
                 root_solutions.append((f"lambda_{i}=0", sp.FiniteSet()))
                 continue
@@ -405,7 +394,7 @@ class GreensFunctionCalculator:
 
         if non_empty_flag == 0:
             warnings.warn(
-                "None of the eigenvalues depend on the variable to solve for; all solution sets are empty.")
+                "None of the eigenvalues depend on the variable to solve for; all solution sets are empty.", stacklevel=2)
         if self.verbose:
             print("\nRoots of the Hamiltonian:")
             pprint(root_solutions, use_unicode=True)
@@ -416,8 +405,8 @@ class GreensFunctionCalculator:
     # region Real-space Fourier transform
     # -- Symbolic 1D real-space transform --
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
-                                                         z: Union[float, sp.Basic],
-                                                         z_prime: Union[float, sp.Basic],
+                                                         z: float | sp.Basic,
+                                                         z_prime: float | sp.Basic,
                                                          z_diff_sign: int = None,
                                                          full_matrix: bool = False,
                                                          case_assumptions: list = None):
@@ -454,7 +443,7 @@ class GreensFunctionCalculator:
 
         if not self.symbolic:
             warnings.warn(
-                "Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.")
+                "Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.", stacklevel=2)
             return []
         assert self.d >= 1, "Cannot perform real-space transform in zero-dimensional system."
 
@@ -483,7 +472,7 @@ class GreensFunctionCalculator:
             z_diff = z - z_prime
             sig = int(sp.sign(z_diff))
             if sig == 0:
-                warnings.warn("z and z' are equal; results may be singular.")
+                warnings.warn("z and z' are equal; results may be singular.", stacklevel=2)
             assert z_diff_sign == sig, f"Expected the sign of (z-z')={z-z_prime} to match z_diff_sign={z_diff_sign}. Adjust z_diff_sign to match sign(z-z')."
 
         else:
@@ -507,7 +496,7 @@ class GreensFunctionCalculator:
                 print("The contour is closed in the lower half-plane, since z<z'.")
             else:
                 warnings.warn(
-                    "The sign of z-z' cannot be determined. More information is needed for contour integration")
+                    "The sign of z-z' cannot be determined. More information is needed for contour integration", stacklevel=2)
 
         # List for the diagonal entries of G(z,z'), each the solution of an integral
         G_z_diag = []
@@ -526,12 +515,12 @@ class GreensFunctionCalculator:
 
         if not has_contributions:
             warnings.warn(
-                "No poles passed the sign check; returning zero Green's function.")
+                "No poles passed the sign check; returning zero Green's function.", stacklevel=2)
             assert sp.diag(*G_z_diag) == sp.zeros(self.N), "Expected zeros on the diagonal if no poles contributed."
 
         elif all((val.is_zero is True) for val in G_z_diag):
             warnings.warn(
-                "Green's function is identically zero: all residue contributions canceled out.")
+                "Green's function is identically zero: all residue contributions canceled out.", stacklevel=2)
             assert has_contributions == True, "Expected has_contributions=True if some poles contributed, otherwise earlier warning should have been triggered."
 
         G_z = sp.diag(*G_z_diag)
@@ -610,20 +599,13 @@ class GreensFunctionCalculator:
         '''
         if self.symbolic:
             warnings.warn(
-                "Numeric 1D G(z,z') computation is not supported in symbolic mode. Disable: symbolic=False.")
+                "Numeric 1D G(z,z') computation is not supported in symbolic mode. Disable: symbolic=False.", stacklevel=2)
 
-        warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].")
+        warnings.warn("Numeric 1D G(z,z') not implemented yet; returning [].", stacklevel=2)
         return []
     # endregion
 
     # region Ambiguity helpers 
-    """
-    For info see:
-    --------
-    ambiguity.Ambiguity : schema of a single ambiguity item
-    ambiguity.AmbiguityLedger : collection semantics and formatting
-    docs/ambiguity.md : background, examples, and resolution patterns
-    """
     def _reset_ambiguities(self): 
         self._ledger.reset()
         log.debug("Ambiguity ledger reset.")
@@ -637,29 +619,34 @@ class GreensFunctionCalculator:
     @staticmethod
     def _halfplane_choice(z, z_prime):
         # numeric-only decision; returns +1, -1, 0, or None (unknown)
+        z, z_prime = sp.sympify(z), sp.sympify(z_prime)
+        if z.is_real is not True or z_prime.is_real is not True:
+            raise ValueError("Both z and z′ must be real numbers or real symbols.")
         if z.is_number and z_prime.is_number:
             if z > z_prime:  return +1
             if z < z_prime:  return -1
             return 0
         return None
     
-    def _eigenvalues_greens_inverse(self, momentum: Union[np.ndarray, sp.Matrix] = None) -> Union[np.ndarray, sp.Matrix, list]:
+    def _eigenvalues_greens_inverse(self, momentum: ArrayLike | None = None) -> tuple[MatrixLike, list[sp.Expr] | np.ndarray, MatrixLike]:
+
         """
         Diagonalize the inverse Green's function matrix to obtain its eigenbasis and eigenvalues.
         Useful for identifying poles and simplifying root solving.
-
+        Returns eigenbasis P, eigenvalues, and diagonalized matrix D, such that D = P^{-1} G^{-1}(k) P.
         Parameters
         ----------
-        momentum: np.ndarray or sp.Matrix
+        momentum: ArrayLike or None
             value at which the Hamiltonian is evaluated
             If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
 
 
         Returns
         ---------
-        - eigenbasis (matrix of eigenvectors) of G⁻¹(k)
-        - eigenvalues of G⁻¹(k)
-        - G⁻¹(k) diagonalized
+        Tuple (P, eigenvalues, D):
+            P : sp.Matrix (symbolic) or np.ndarray (numeric)
+            eigenvalues : list[sp.Expr] (symbolic) or np.ndarray (numeric)
+            D : sp.Matrix (symbolic) or np.ndarray (numeric)
 
         Raises
         ------
@@ -673,26 +660,12 @@ class GreensFunctionCalculator:
                 raise ValueError(
                     "Momentum must be provided in numeric mode (symbolic=False).")
         # 1) momentum validation
-        if self.d != 1:
-            # Sanitize momentum input
-            momentum = sanitize_vector(momentum, self.symbolic)
-            # Ensure correct momentum dimensionality
-            if len(momentum) != self.d:
-                raise ValueError(
-                    f"Expected momentum vector of dimension {self.d}, got {len(momentum)}")
+        k_vec = sanitize_vector(momentum, self.symbolic, expected_dim=self.d)   # always sanitize
+        k_for_H = (k_vec[0] if self.d == 1 else k_vec)                          # scalar only for H(k)
 
         # 2) H(k) build + shape check
-        H_k = self.H(momentum)
-        H_k = [H_k] if self.N == 1 else H_k  # ensure indexable for 1D
-
-        if self.symbolic:
-            H_k = sp.Matrix(H_k)
-        else:
-            H_k = np.asarray(H_k, dtype=complex)
-
-        if H_k.shape != (self.N, self.N):
-            raise ValueError(
-                f"H(k) must be {self.N}x{self.N}, got {H_k.shape}.")
+        H_k = self.H(k_for_H)
+        H_k = sanitize_matrix(H_k, self.symbolic, expected_size=self.N)
 
         # 3) G^{-1}(k)
         if self.symbolic:
@@ -780,7 +753,7 @@ class GreensFunctionCalculator:
             condP = np.linalg.cond(P)  # condition number of eigenbasis
             if not np.isfinite(condP) or condP > 1e12:
                 warnings.warn(
-                    f"Ill-conditioned eigenbasis (cond={condP:.2e}). Results may be unstable.")
+                    f"Ill-conditioned eigenbasis (cond={condP:.2e}). Results may be unstable.", stacklevel=2)
 
             P_inv = invert_matrix(P, symbolic=False)
             D = np.diag(vals.astype(complex))
@@ -833,15 +806,13 @@ class GreensFunctionCalculator:
 
         Parameters:
         - lambda_i: Diagonal entry λᵢ(k) of G⁻¹(k). Must be polynomial in the integration variable!
-        - poles_i: Valid poles of λᵢ
         - z, z′: Coordinates in real space (must be real-valued or symbolic real)
         - kz_sym: Momentum variable to integrate over (e.g., k_z)
         - z_diff_sign: Determines correct half-plane for the contour
-        - has_contributions: Tracks whether any pole has contributed
 
         Returns:
         - contrib: Total residue contribution to G_{ii}(z, z′), that is the residue sum multiplied by i.
-        - has_contributions: Updated flag
+        - contributed_any: Contribution flag
         """
         contributed_any = False
 
@@ -865,7 +836,7 @@ class GreensFunctionCalculator:
             # Not polynomial (SymPy can’t reliably find poles)
             # Triggers unevaluated integral fallback
             warnings.warn(
-                f"Eigenvalue is not polynomial in k; returning unevaluated Fourier integral.")
+                f"Eigenvalue is not polynomial in k; returning unevaluated Fourier integral.", stacklevel=2)
             expr = sp.Integral(phase / sp.simplify(lambda_i),
                                (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
             contributed_any = True

@@ -1,6 +1,6 @@
 import numpy as np
 import sympy as sp
-from typing import Union
+from typing import Union, Optional
 
 
 def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
@@ -58,13 +58,77 @@ def is_unitary(U: Union[np.ndarray, sp.Matrix],
     return np.allclose(U_eval.conj().T @ U_eval, np.eye(U_eval.shape[0]), atol=atol)
 
 
-def sanitize_vector(vec: Union[np.ndarray, list, tuple, sp.Matrix],
-                    symbolic: bool) -> Union[np.ndarray, sp.Matrix]:
+def is_scalar(x) -> bool:
+    '''
+    Tiny helper to identify scalar-like values (int, float, np.number, sp.Basic).
+    '''
+    return (isinstance(x, (int, float, np.number, sp.Basic)))
+
+def sanitize_vector(
+    veclike: Union[np.ndarray, list, tuple, sp.Matrix, int, float, sp.Basic],
+    symbolic: bool,
+    expected_dim: Optional[int] = None,
+    ) -> Union[np.ndarray, sp.Matrix]:
     """
-    This helper function ensures that the vector (vec) is a type fitting 
-    for the mode we are working in, i.e. symbolic or numeric.
+    Coerce `veclike` into a vector with consistent backend types.
+
+    - numeric: returns np.ndarray with shape (n,)
+    - symbolic: returns sp.Matrix with shape (n, 1)
+
+    Policy:
+    - If expected_dim == 1 and input is scalar-like, wrap to length-1 vector.
+    - If expected_dim > 1 and input is scalar-like, raise ValueError.
+    - Otherwise coerce and validate shape == expected_dim (when provided).
     """
-    return sp.Matrix(vec) if symbolic else np.array(vec, dtype=float)
+    if isinstance(veclike, np.ndarray) and veclike.ndim == 0:
+        veclike = veclike.item() # unwrap 0-dim ndarray to scalar
+
+    # Dim-conditional scalar handling
+    if expected_dim is not None and is_scalar(veclike):
+        if expected_dim == 1:
+            veclike = [veclike]             # wrap scalar for 1D
+        else:
+            raise ValueError(f"Expected vector of length {expected_dim}, got scalar")
+
+    # Coerce to backend type
+    vec = sp.Matrix(veclike) if symbolic else np.asarray(veclike, dtype=float)
+
+    # Normalize shapes
+    if symbolic:
+        # ensure column vector
+        if vec.cols != 1:
+            vec = sp.Matrix(vec).reshape(vec.rows * vec.cols, 1)
+    else:
+        vec = np.ravel(vec)  # 1-D view
+
+    # Enforce expected length
+    if expected_dim is not None:
+        n = vec.shape[0] # length of vector
+        if n != expected_dim:
+            raise ValueError(f"Expected vector of length {expected_dim}, got {n}")
+
+    return vec
+
+def sanitize_matrix(
+    matlike: Union[np.ndarray, list, tuple, sp.Matrix, int, float, sp.Basic],
+    symbolic: bool,
+    expected_size: int
+    )-> Union[np.ndarray, sp.Matrix]:
+
+    if is_scalar(matlike):
+        matlike = [matlike] # ensure indexable for 1D
+    elif isinstance(matlike, np.ndarray) and matlike.ndim == 0:
+        matlike = [matlike.item()] # ensure indexable for 1D
+
+    if symbolic:
+        mat = sp.Matrix(matlike)
+    else:
+        mat = np.asarray(matlike, dtype=complex)
+
+    if mat.shape != (expected_size, expected_size):
+        raise ValueError(
+            f"H(k) must be {expected_size}x{expected_size}, got {mat.shape}.")
+    return mat
 
 
 def get_identity(size: int,
