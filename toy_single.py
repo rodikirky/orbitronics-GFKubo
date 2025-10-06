@@ -40,8 +40,7 @@ ferro_greenscalculator = GreensFunctionCalculator(
     energy_level=omega,
     broadening=eta,
     retarded=True,
-    dimension=1,
-    verbose=True)
+    dimension=1)
 
 #ferro_greenscalculator.info() # correct
 #ferro_G_k = ferro_greenscalculator.compute_kspace_greens_function(momentum) # correct
@@ -49,7 +48,7 @@ ferro_greenscalculator = GreensFunctionCalculator(
 #roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0) # correct
 
 z, z_prime = sp.symbols("z z'", real=True)
-ferro_G_r = ferro_greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime)
+ferro_G_r = ferro_greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime, z_diff_sign=1)
 
 # Non-ferromagnetic side
 #nonferro_greenscalculator = GreensFunctionCalculator(

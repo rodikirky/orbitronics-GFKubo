@@ -299,7 +299,7 @@ class GreensFunctionCalculator:
             return []  # no error raised but empty list returned
         
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
-        predicates, choices = self._split_ambiguities(case_assumptions)
+        predicates, choices = self._split_case_assumptions(case_assumptions)
 
         if solve_for is None:
             solve_for = self.d - 1  # default to last dimension
@@ -396,6 +396,7 @@ class GreensFunctionCalculator:
                     except sp.PolynomialError:
                         # general solve for non-polynomial case
                         log.debug("Polynomial solver failed. Trying general solver with sp.solveset.")
+                        warnings.warn(f"Eigenvalue λ_{i} is not polynomial in {k_var}")
                         solset = sp.solveset(
                             sp.Eq(lambda_i, 0), k_var, domain=sp.S.Complexes)
                         if isinstance(solset, sp.ConditionSet):
@@ -424,6 +425,7 @@ class GreensFunctionCalculator:
                     "None of the eigenvalues depend on k_var; G⁻¹(k) has no roots.", stacklevel=2)
             log.info("Root solving completed.")
             log.debug("Roots of G⁻¹(k) %s", root_solutions)
+            self._finalize_ambiguities_or_raise(context="root solving")
 
         return root_solutions
     # endregion
@@ -465,7 +467,7 @@ class GreensFunctionCalculator:
         self._reset_ambiguities()
 
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
-        predicates, choices = self._split_ambiguities(case_assumptions)
+        predicates, choices = self._split_case_assumptions(case_assumptions)
 
         if not self.symbolic:
             warnings.warn(
@@ -560,6 +562,7 @@ class GreensFunctionCalculator:
             return G_full
             
         log.info("Note: Only diagonal entries are returned by default.") 
+        self._finalize_ambiguities_or_raise(context="root solving")
         return G_z
 
     def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
