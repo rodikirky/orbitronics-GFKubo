@@ -102,7 +102,6 @@ class GreensFunctionCalculator:
         self.I = identity
         # validate identity
         if not (hasattr(self.I, "shape") and self.I.shape[0] == self.I.shape[1]):
-            log.error("Invalid identity shape: %s", getattr(self.I, "shape", None))
             raise ValueError(f"Identity must be a square matrix.")
         # band size, e.g., 2 for spin-1/2 systems
         self.N = int(self.I.shape[0])
@@ -136,7 +135,6 @@ class GreensFunctionCalculator:
         # Choice of dimension determines default momentum symbols:
         self.d = int(dimension)
         if self.d not in (1, 2, 3):
-            log.error("Unsupported dimension d=%s (allowed: 1,2,3)", self.d)
             raise ValueError(
                 f"Only 1D, 2D, and 3D systems are supported. Got dimension={self.d}.")
 
@@ -231,7 +229,6 @@ class GreensFunctionCalculator:
             value at which the Hamiltonian is evaluated
             If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
 
-
         Returns
         ---------
         G(k) as np.ndarray or sp.Matrix
@@ -243,13 +240,12 @@ class GreensFunctionCalculator:
             If called in numeric mode without a specific momentum value.
         """
         self._reset_ambiguities()
-        log.debug("k-space G: momentum=%s (symbolic=%s)", momentum, self.symbolic)
+        log.debug("Computing G(k) with: momentum=%s (symbolic=%s)", momentum, self.symbolic)
 
         if momentum is None:
             if self.symbolic:
                 momentum = sp.Matrix(self.k_symbols)
             else:
-                log.error("Numeric mode called without momentum.")
                 raise ValueError(
                     "Momentum must be provided in numeric mode (symbolic=False).")
         k_vec = sanitize_vector(momentum, self.symbolic, expected_dim=self.d) # ensure iterable and correct type and shape
@@ -263,9 +259,10 @@ class GreensFunctionCalculator:
         imaginary_unit = sp.I if self.symbolic else 1j
         G_inv = (self.omega + self.q * self.eta *
                  imaginary_unit) * self.I - H_k
-        log.debug("Formed G^{-1}(k) = (ω + %siη)I - H(k)", "+" if self.q==1 else "-")
+        log.debug("Formed G^{-1}(k) = (ω %s iη)I - H(k)", "+" if self.q==1 else "-")
         G_k = invert_matrix(G_inv, symbolic=self.symbolic)
-        log.debug("Inverted G^{-1}(k) successfully.")        
+        log.info("G(k) computed successfully.") 
+        log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")     
 
         return G_k
     # endregion
@@ -301,15 +298,22 @@ class GreensFunctionCalculator:
         ValueError
             If `solve_for` is out of range [0, d-1].
         """
+        log.debug("Started root solving")
         self._reset_ambiguities()
-
+        
         if not self.symbolic:
             warnings.warn(
                 "Root solving is only supported in symbolic mode. Enable symbolic=True.", stacklevel=2)
             return []  # no error raised but empty list returned
+        
+        # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
+        if case_assumptions is None:
+            log.debug("No case_assumptions provided.")
+            case_assumptions = []
 
         if solve_for is None:
             solve_for = self.d - 1  # default to last dimension
+            log.debug("No solve_for input provided. Defaulting to solve_for=%d", solve_for)
         # validate index
         if not isinstance(solve_for, int):
             raise TypeError(
@@ -320,52 +324,47 @@ class GreensFunctionCalculator:
                 f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
 
         k_var = self.k_symbols[solve_for]  # variable to solve for
-
-        if self.verbose:
-            print(
-                f"\nSolving for roots of G⁻¹(k) eigenvalues with respect to k_symbols[{solve_for}] = {k_var}...")
+        log.info("Computing roots of G⁻¹(k) for variable %s.", k_var)
 
         # Define symbolic momentum components
         k = sp.Matrix(self.k_symbols)  # e.g., Matrix([k_x, k_y, k_z]) or fewer
 
         # Compute eigenvalues of the inverse Green's function
         _, eigenvalues, _ = self._eigenvalues_greens_inverse(k)
+        log.debug("Eigenvalues successfully computed.")
 
         root_solutions = []
         non_empty_flag = 0  # count how many eigenvalues have non-empty solution sets
         for i, lambda_i in enumerate(eigenvalues):
             # simplify for readability and solving
-            lambda_i = sp.simplify(lambda_i)
-            if self.verbose:
-                print(f"\nThe free symbols in eigenvalue λ[{i}] are: {lambda_i.free_symbols}.")
+            lambda_i = sp.simplify(sp.together(lambda_i))
             # a) Short circuit if λ_i has no dependence on k_var
-            if k_var not in lambda_i.free_symbols:
-                if self.verbose:
-                    print(f"This set does not include the variable we solve for: {k_var}.")
+            if not lambda_i.has(k_var):
+                #log.debug("Free symbols of λ_%d: %s", i, lambda_i.free_symbols)
                 # check for all-together vanishing eigenvalue
                 if lambda_i.equals(0) or lambda_i.is_zero:
+                    log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
                     raise ValueError(
                         f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
                 # λ_i is constant in the variable to solve for
                 warnings.warn(
-                    f"The {i}th eigenvalue lambda_{i}={lambda_i} has no dependence {k_var}; returning empty solution set.", stacklevel=2)
+                    f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
                 # Return empty solution set
-                root_solutions.append((f"lambda_{i}=0", sp.FiniteSet()))
+                root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
                 continue
-            non_empty_flag = 1
 
             # b) Warn if λ_i is not polynomial in k_var
             if not lambda_i.is_polynomial(k_var):
                 warnings.warn(
-                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in {k_var}.", stacklevel=2)
+                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in k_var.", stacklevel=2)
 
             # c) Solve for roots of lambda_i = 0
             try:
-                lam_simpl = sp.simplify(lambda_i)
                 try:
                     # polynomial attempt
                     # let SymPy pick the domain
-                    poly = sp.Poly(lam_simpl, k_var)
+                    log.debug("Trying to solve polynomially.")
+                    poly = sp.Poly(lambda_i, k_var)
                     if poly.total_degree() > 0:
                         # dict {root: multiplicity}
                         roots_dict = sp.roots(poly.as_expr(), k_var)
@@ -375,29 +374,51 @@ class GreensFunctionCalculator:
                             roots_list.extend([sp.simplify(r)] * int(m))
                         solset = sp.FiniteSet(*roots_list)
                     else:
-                        solset = sp.S.Complexes if sp.simplify(
-                            lam_simpl) == 0 else sp.EmptySet
+                        log.debug("Polynomial degree is zero.")
+                        log.debug("Short circuit should have caught this case earlier.")
+                        # check for all-together vanishing eigenvalue
+                        expr = poly.as_expr()
+                        if expr.has(k_var):
+                            warnings.warn(
+                                f"Odd edge case: polynomial has {k_var} but degree is zero. Possibly due to insufficient simplification. Investigate!", stacklevel=2)
+                            log.debug("λ_%d = %s", i, expr)
+                            root_solutions.append(
+                                (f"lambda_{i}=0", f"Edge case: polynomial has {k_var} but degree is zero. Solver failed."))
+                            continue
+                        # check for all-together vanishing eigenvalue
+                        if expr.equals(0) or expr.is_zero:
+                            log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
+                            raise ValueError(
+                                f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
+                        # λ_i is constant in the variable to solve for
+                        warnings.warn(
+                            f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
+                        # Return empty solution set
+                        root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
+                        continue
                 except sp.PolynomialError:
                     # general solve
+                    log.debug("Polynomial solver failed. Trying general solver with sp.solveset.")
                     solset = sp.solveset(
-                        sp.Eq(lam_simpl, 0), k_var, domain=sp.S.Complexes)
+                        sp.Eq(lambda_i, 0), k_var, domain=sp.S.Complexes)
                     if isinstance(solset, sp.ConditionSet):
                         warnings.warn(
-                            f"λ[{i}] is not polynomial in {k_var}; returning a ConditionSet.",
+                            f"lambda_{i} not polynomial in {k_var}. solveset returns a ConditionSet.",
                             stacklevel=2
                         )
                 root_solutions.append((f"lambda_{i}=0", solset))
             except Exception as e:
                 # fallback if something really unexpected happens
+                log.error("Error during solving for lambda_%d: %s", i, e)
                 root_solutions.append(
-                    (f"lambda_{i}=0", f"Error during solving: {e}"))
+                    (f"lambda_{i}=0", f"Error during solving."))
+            non_empty_flag = 1
 
         if non_empty_flag == 0:
             warnings.warn(
-                "None of the eigenvalues depend on the variable to solve for; all solution sets are empty.", stacklevel=2)
-        if self.verbose:
-            print("\nRoots of the Hamiltonian:")
-            pprint(root_solutions, use_unicode=True)
+                "None of the eigenvalues depend on k_var; G⁻¹(k) has no roots.", stacklevel=2)
+        log.info("Root solving completed.")
+        log.debug("Roots of G⁻¹(k) %s", root_solutions)
 
         return root_solutions
     # endregion
@@ -435,72 +456,72 @@ class GreensFunctionCalculator:
         G(z, z′): matrix;
             The symbolic real-space Green's function matrix.
         """
+        log.debug("Started 1D real-space transform of the %s Green's function.", self.green_type)
         self._reset_ambiguities()
 
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
         if case_assumptions is None:
+            log.debug("No case_assumptions provided.")
             case_assumptions = []
 
         if not self.symbolic:
             warnings.warn(
-                "Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True.", stacklevel=2)
-            return []
-        assert self.d >= 1, "Cannot perform real-space transform in zero-dimensional system."
+                "Symbolic 1D G(z,z') computation is only supported in symbolic mode. Enable symbolic=True. Returning empty list.", stacklevel=2)
+            return []  # no error raised but empty list returned with warning
 
         if z_diff_sign is None and self._halfplane_choice(z, z_prime) is None:
             raise ValueError(
                 f"No z_diff_sign provided and sign({z} - {z_prime}) indeterminable. Provide z_diff_sign or exchange {z},{z_prime} for numeric values.")
         else: 
             z_diff_sign = self._halfplane_choice(z, z_prime) if z_diff_sign is None else z_diff_sign
+            log.debug("Halfplane choice: z_diff_sign=%d.", z_diff_sign)
 
         kvec = sp.Matrix(self.k_symbols)
         # direction of real-space transform (last component)
         k_dir = self.k_symbols[self.d - 1]
-
-        if self.verbose:
-            print(
-                f"\nPerforming 1D Fourier transform of the {self.green_type} Green's function over variable {k_dir}.")
+        log.debug("Integration coordinate: k_dir=%s.", k_dir)
 
         z_sym, zp_sym = sp.sympify(z), sp.sympify(z_prime)
-        assert z_sym.is_real is not False and zp_sym.is_real is not False, "Both z and z′ must be real symbols or numbers"
+        if z_sym.is_real is False or zp_sym.is_real is False:
+            raise ValueError("Both z and z′ must be real symbols or real numbers.")
+
+        log.debug("Real space coordinates: %s, %s.", z_sym, zp_sym)
 
         if not isinstance(z, sp.Symbol):
-            assert not isinstance(
-                z_prime, sp.Symbol), "Expected z' to be a real number, not a symbol."
+            if isinstance(z_prime, sp.Symbol):
+                raise TypeError("Expected z' to be a real number like z, not a symbol.")
             z = float(z)
             z_prime = float(z_prime)
             z_diff = z - z_prime
             sig = int(sp.sign(z_diff))
             if sig == 0:
                 warnings.warn("z and z' are equal; results may be singular.", stacklevel=2)
-            assert z_diff_sign == sig, f"Expected the sign of (z-z')={z-z_prime} to match z_diff_sign={z_diff_sign}. Adjust z_diff_sign to match sign(z-z')."
+            if not z_diff_sign == sig: 
+                raise ValueError(
+                    f"Expected the sign of (z-z')={z-z_prime} to match z_diff_sign={z_diff_sign}. Change to z_diff_sign=None for automatic alignment or match z_diff_sign={sig}.")
 
         else:
-            assert isinstance(
-                z_prime, sp.Symbol), "Expected z' to be instance of sp.Symbol since z is one."
+            if not isinstance(z, sp.Symbol):
+                raise TypeError(f"Expected z' to be a symbol like z, got {type(z_prime)}.")
 
-        if self.verbose:
-            print(
-                "( ω + iη - H(k) ) will be diagonalized to evaluate residues for the Fourier integral.") if self.green_type == "retarded (+iη)" else print("( ω - iη - H(k) ) will be diagonalized to evaluate residues for the Fourier integral.")
+        if self.green_type == "retarded (+iη)":
+            log.debug("Diagonalizing (ω + iη - H(k)) to evaluate residues for the Fourier integral.") 
+        else:
+            log.debug("Diagonalizing (ω - iη - H(k)) to evaluate residues for the Fourier integral.")
 
-        _, eigenvalues, _ = self._eigenvalues_greens_inverse(kvec)
-
-        if self.verbose:
-            if z_diff_sign == 1:
-                print(f"\nThe Fourier integral over {k_dir} is computed using contour integration,") 
-                print("utilizing Jordan's Lemma and the Residue Theorem.")
-                print("The contour is closed in the upper half-plane, since z>z'.")
-            elif z_diff_sign == -1:
-                print(f"\nThe Fourier integral over {k_dir} is computed using contour integration,") 
-                print("utilizing Jordan's Lemma and the Residue Theorem.")
-                print("The contour is closed in the lower half-plane, since z<z'.")
-            else:
-                warnings.warn(
-                    "The sign of z-z' cannot be determined. More information is needed for contour integration", stacklevel=2)
+        eigenbasis, eigenvalues, _ = self._eigenvalues_greens_inverse(kvec)
+        log.debug("Eigenvalues successfully computed.")
+        log.info(
+            "The Fourier integral over %s is computed using contour integration.", k_dir) 
+        if z_diff_sign == 1:
+            log.info("The contour is closed in the upper half-plane, since z>z'.")
+        elif z_diff_sign == -1:
+            log.info("The contour is closed in the lower half-plane, since z<z'.")
+        log.info("If different assumptions on %s and %s are needed, rerun with the appropriate z_diff_sign parameter.", z, z_prime)
 
         # List for the diagonal entries of G(z,z'), each the solution of an integral
         G_z_diag = []
-        has_contributions = False
+        has_contributions = False # track if any pole contributed
 
         for i, lambda_i in enumerate(eigenvalues):
             contrib, contributed_any = self._residue_sum_for_lambda(
@@ -509,10 +530,9 @@ class GreensFunctionCalculator:
             assert contrib == 0 if not contributed_any else True, "If no poles contributed, the contribution must be zero."
             G_z_diag.append(contrib)
 
-            if self.verbose:
-                print(f"\nThe eigenvalue λ_{i+1}(k) = {lambda_i}")
-                print(f"contributes to the residue sum with: {contrib}") if contrib != 0 else print("does not contribute to the residue sum.")
-
+            log.debug("Processed eigenvalue λ_%d=%s.", i, lambda_i)
+            log.debug("Diagonal entry to G(z,z') #%d: %s", i, contrib)
+            
         if not has_contributions:
             warnings.warn(
                 "No poles passed the sign check; returning zero Green's function.", stacklevel=2)
@@ -524,28 +544,19 @@ class GreensFunctionCalculator:
             assert has_contributions == True, "Expected has_contributions=True if some poles contributed, otherwise earlier warning should have been triggered."
 
         G_z = sp.diag(*G_z_diag)
-
-        if self.verbose:
-            print(f"\nThe real space {self.green_type} Green's function in the last spatial dimension is:")
-            print(f"G({z}, {z_prime}) = {G_z}")
-            print(f"where it is assumed that z {'>' if z_diff_sign==1 else '<'} z'.")
-            print("If different assumptions on z and z' are needed, rerun with the appropriate z_diff_sign parameter.")
-            print(f"with additional assumptions: {case_assumptions}") if case_assumptions else print("with no additional case assumptions fed to the solver.")
-            print("If assumptions need to be altered, rerun with the appropriate case_assumptions parameter.")
-            if not full_matrix:
-                print("\nNote: Only diagonal entries are returned by default.")  
+        log.info("1D real-space %s Green's function G(%s,%s) successfully computed.", self.green_type, z, z_prime)
+        #log.info(f"Additional assumptions made: {case_assumptions}") if case_assumptions else log.info("No additional case assumptions fed to the solver.")
+        #log.info("If assumptions need to be altered, rerun with the appropriate case_assumptions parameter.") 
 
         # Note: Currently returning only diagonal Green's function G(z, z′)
         # Full matrix reconstruction from eigenbasis can be added if needed:
         if full_matrix:
-            eigenbasis, _, _ = self._eigenvalues_greens_inverse(kvec)
             G_full = eigenbasis @ G_z @ invert_matrix(
                 eigenbasis, symbolic=True)
-            if self.verbose:
-                print("\nThe full Green's function matrix in the original basis is:")
-                print(f"G({z}, {z_prime}) = {G_full}")
+            log.info("The full Green's function matrix in the original basis is returned.")
             return G_full
-
+            
+        log.info("Note: Only diagonal entries are returned by default.") 
         return G_z
 
     def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
@@ -732,11 +743,6 @@ class GreensFunctionCalculator:
                     raise ValueError(
                         "Eigendecomposition failed: P*D*P^{-1} != G^{-1}(k).")
 
-            if self.verbose:
-                print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
-                for i, lam in enumerate(eigenvalues):
-                    print(f"λ[{i}] = {sp.simplify(lam)}")
-
             return P, eigenvalues, D
 
         # Numeric mode
@@ -796,7 +802,7 @@ class GreensFunctionCalculator:
 
             return P, vals, D
 
-    def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign, case_assumptions: list = None):
+    def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign, case_assumptions: list):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
         This method of calculating the residue is based on the assumption that the diagonal
@@ -815,9 +821,6 @@ class GreensFunctionCalculator:
         - contributed_any: Contribution flag
         """
         contributed_any = False
-
-        #if case_assumptions is None:
-        #    case_assumptions = []
 
         ## store (k0, m, res_expr) to resolve ambiguity:
         #ambiguous = []
