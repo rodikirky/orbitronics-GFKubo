@@ -36,7 +36,6 @@ def test_create_symbolic_greens_function():
     assert greens_calculator.omega == omega, "omega should remain unchanged after initiation"
     assert greens_calculator.eta == eta, "eta should remain unchanged after initiation"
     assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
-    assert greens_calculator.verbose is False, "verbose should default to False"
 
 def test_create_numeric_greens_function():
     # Use concrete numeric values for parameters
@@ -64,7 +63,6 @@ def test_create_numeric_greens_function():
     assert greens_calculator.omega == 1.2, "omega should remain unchanged after initiation"
     assert greens_calculator.eta == 0.01, "eta should remain unchanged after initiation"
     assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
-    assert greens_calculator.verbose is False, "verbose should default to False"
 
 
 # ────────────────────────────────
@@ -217,8 +215,7 @@ def test_symbolic_eigenvalues_shape_and_form():
         symbolic=True,
         energy_level=0,
         broadening=0.1,
-        dimension=2,
-        verbose=False
+        dimension=2
     )
     k = calc.k_symbols
     _, eigenvalues, _ = calc._eigenvalues_greens_inverse(k)
@@ -243,8 +240,7 @@ def test_roots_return_expected_expressions():
         symbolic=True,
         energy_level=0,
         broadening=0.00,
-        dimension=2,
-        verbose=False
+        dimension=2
     )
     results = calc.compute_roots_greens_inverse(solve_for=0)
     assert isinstance(results, list)
@@ -263,8 +259,7 @@ def test_warns_on_non_polynomial_roots():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        broadening=0.01,
-        verbose=False
+        broadening=0.01
     )
     
     with pytest.warns(UserWarning, match="not polynomial"):
@@ -300,8 +295,7 @@ def test_rspace_green_integrates_known_form():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        broadening=eta,
-        verbose=False
+        broadening=eta
     )
 
     result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
@@ -323,8 +317,7 @@ def test_warns_when_integral_cannot_be_evaluated():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        broadening=eta,
-        verbose=False
+        broadening=eta
     )
 
     with pytest.warns(UserWarning, match="unevaluated"):
@@ -343,8 +336,7 @@ def test_result_depends_on_difference_not_absolutes():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        broadening=eta,
-        verbose=False
+        broadening=eta
     )
     
     result1 = calc.compute_rspace_greens_symbolic_1d(z=1, z_prime=0)
@@ -364,8 +356,7 @@ def test_multiple_bands_return_distinct_results():
         identity=sp.eye(2),
         symbolic=True,
         energy_level=0,
-        broadening=0.1,
-        verbose=False
+        broadening=0.1
     )
 
     results = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
@@ -384,7 +375,6 @@ def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
         symbolic=True,
         energy_level=0,
         broadening=1e-15,  # smallest eta that is not disregarded in the solver
-        verbose=False,
         retarded=True
     )
     
@@ -396,63 +386,6 @@ def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
         val = G_expr.subs({z: 0, z_prime: 1}).evalf()
         assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
     
-
-
-# ────────────────────────────────
-# Verbose output
-# ────────────────────────────────
-
-def test_numeric_verbose_output(capsys):
-    def dummy_H(k): return np.eye(2)
-
-    calculator = GreensFunctionCalculator(
-        hamiltonian=dummy_H,
-        identity=np.eye(2),
-        symbolic=False,
-        energy_level=1.0,
-        broadening=0.1,
-        dimension=2,
-        verbose=True
-    )
-    
-    momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
-    calculator.compute_kspace_greens_function(momentum)
-    calculator. _eigenvalues_greens_inverse(momentum)
-
-    captured = capsys.readouterr()
-    assert "Computing Green's function at momentum k" in captured.out
-    assert "ω ± iη - H(k)" in captured.out
-    assert "Diagonal elements" in captured.out
-
-def test_symbolic_verbose_output(capsys):
-    def dummy_H(k): return sp.eye(2)
-    omega, eta = sp.symbols("omega eta", real=True, positive=True)
-    z, z_prime = sp.symbols("z z'", real=True)
-
-    calculator = GreensFunctionCalculator(
-        hamiltonian=dummy_H,
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=omega,
-        broadening=eta,
-        dimension=2,
-        verbose=True
-    )
-    
-    momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
-    calculator.compute_kspace_greens_function(momentum)
-    with pytest.warns(UserWarning, match="None of the eigenvalues"):
-        calculator.compute_roots_greens_inverse()
-    with pytest.warns(UserWarning, match="No poles passed"):
-        # There are no poles, so we expect a warning here
-        calculator.compute_rspace_greens_symbolic_1d(z, z_prime)
-
-        captured = capsys.readouterr()
-        assert "( ω + iη - H(k) )" in captured.out
-        assert "Diagonal elements" in captured.out
-        assert "Fourier transform" in captured.out
-        assert "integration variable" in captured.out
-
 
 # ────────────────────────────────
 # Error Handling
@@ -510,8 +443,7 @@ def test_warns_in_numeric_mode_returns_empty_list():
         identity=np.eye(2),
         symbolic=False,
         energy_level=0,
-        broadening=0.1,
-        verbose=False
+        broadening=0.1
     )
 
     with pytest.warns(UserWarning, match="Enable symbolic=True."):
