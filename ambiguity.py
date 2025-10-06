@@ -51,3 +51,9 @@ class AmbiguityLedger:
                 f"  Data: {a.data}"
             )
         return "\n".join(lines)
+    
+class AggregatedAmbiguityError(RuntimeError):
+    """Raised when ambiguities were recorded but not resolved before returning a result."""
+    def __init__(self, message: str, items=None):
+        super().__init__(message)
+        self.items = items or []

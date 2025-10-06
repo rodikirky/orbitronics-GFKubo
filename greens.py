@@ -28,7 +28,7 @@ from sympy import pprint
 from typing import Callable, Union, Sequence
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
 import warnings
-from ambiguity import Ambiguity, AmbiguityLedger
+from ambiguity import AmbiguityLedger, AggregatedAmbiguityError
 import logging
 
 __all__ = ["GreensFunctionCalculator"]
@@ -299,9 +299,7 @@ class GreensFunctionCalculator:
             return []  # no error raised but empty list returned
         
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
-        if case_assumptions is None:
-            log.debug("No case_assumptions provided.")
-            case_assumptions = []
+        predicates, choices = self._split_ambiguities(case_assumptions)
 
         if solve_for is None:
             solve_for = self.d - 1  # default to last dimension
@@ -321,96 +319,111 @@ class GreensFunctionCalculator:
         # Define symbolic momentum components
         k = sp.Matrix(self.k_symbols)  # e.g., Matrix([k_x, k_y, k_z]) or fewer
 
-        # Compute eigenvalues of the inverse Green's function
-        _, eigenvalues, _ = self._eigenvalues_greens_inverse(k)
-        log.debug("Eigenvalues successfully computed.")
+        with sp.assuming(*predicates):
+            # Compute eigenvalues of the inverse Green's function
+            _, eigenvalues, _ = self._eigenvalues_greens_inverse(k)
+            log.debug("Eigenvalues successfully computed.")
 
-        root_solutions = []
-        non_empty_flag = 0  # count how many eigenvalues have non-empty solution sets
-        for i, lambda_i in enumerate(eigenvalues):
-            # simplify for readability and solving
-            lambda_i = sp.simplify(sp.together(lambda_i))
-            # a) Short circuit if λ_i has no dependence on k_var
-            if not lambda_i.has(k_var):
-                #log.debug("Free symbols of λ_%d: %s", i, lambda_i.free_symbols)
-                # check for all-together vanishing eigenvalue
-                if lambda_i.equals(0) or lambda_i.is_zero:
-                    log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
-                    raise ValueError(
-                        f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
-                # λ_i is constant in the variable to solve for
-                warnings.warn(
-                    f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
-                # Return empty solution set
-                root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
-                continue
+            root_solutions = []
+            non_empty_flag = 0  # count how many eigenvalues have non-empty solution sets
+            for i, lambda_i in enumerate(eigenvalues):
+                # simplify for readability and solving
+                lambda_i = sp.simplify(sp.together(lambda_i))
+                # a) Short circuit if λ_i has no dependence on k_var
+                if not lambda_i.has(k_var):
+                    #log.debug("Free symbols of λ_%d: %s", i, lambda_i.free_symbols)
+                    # check for all-together vanishing eigenvalue
+                    if lambda_i.equals(0) or lambda_i.is_zero:
+                        log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
+                        raise ValueError(
+                            f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
+                    # λ_i is constant in the variable to solve for
+                    warnings.warn(
+                        f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
+                    # Return empty solution set
+                    root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
+                    continue
 
-            # b) Warn if λ_i is not polynomial in k_var
-            if not lambda_i.is_polynomial(k_var):
-                warnings.warn(
-                    f"Solving λ_{i}(k) = 0 may fail: expression is not polynomial in k_var.", stacklevel=2)
-
-            # c) Solve for roots of lambda_i = 0
-            try:
+                # b) Solve for roots of lambda_i = 0
                 try:
-                    # polynomial attempt
-                    # let SymPy pick the domain
-                    log.debug("Trying to solve polynomially.")
-                    poly = sp.Poly(lambda_i, k_var)
-                    if poly.total_degree() > 0:
-                        # dict {root: multiplicity}
-                        roots_dict = sp.roots(poly.as_expr(), k_var)
-                        # expand multiplicities into a list, to match your previous FiniteSet(*roots)
-                        roots_list = []
-                        for r, m in roots_dict.items():
-                            roots_list.extend([sp.simplify(r)] * int(m))
-                        solset = sp.FiniteSet(*roots_list)
-                    else:
-                        log.debug("Polynomial degree is zero.")
-                        log.debug("Short circuit should have caught this case earlier.")
-                        # check for all-together vanishing eigenvalue
-                        expr = poly.as_expr()
-                        if expr.has(k_var):
+                    try:
+                        # polynomial attempt
+                        # let SymPy pick the domain
+                        log.debug("Trying to solve polynomially.")
+                        poly = sp.Poly(lambda_i, k_var)
+                        if poly.total_degree() > 0:
+                            # dict {root: multiplicity}
+                            roots_dict = sp.roots(poly.as_expr(), k_var)
+                            # expand multiplicities into a list, to match your previous FiniteSet(*roots)
+                            roots_list = []
+                            for r, m in roots_dict.items():
+                                roots_list.extend([sp.simplify(r)] * int(m))
+                            solset = sp.FiniteSet(*roots_list)
+                        else:
+                            log.debug("Polynomial degree is zero.")
+                            log.debug("Short circuit should have caught this case earlier.")
+                            # check for all-together vanishing eigenvalue
+                            expr = poly.as_expr()
+                            if expr.has(k_var):
+                                # strange edge case that needs to be resolved if encountered
+                                choice_key = ("roots", f"lambda_{i}.poly_constant_yet_not")
+                                if choices[choice_key] != "constant":
+                                    self._add_amb(
+                                        where="roots",
+                                        what=f"lambda_{i}.poly_constant_yet_not",
+                                        predicate=None,                     # no simple predicate; depends on k0
+                                        options=["constant", "not-constant"],
+                                        consequence=f"Cannot decide if λ_{i}({k_var})=0 has roots.",
+                                        data={"k_var": k_var, "lambda_i": lambda_i, "poly_expr": expr},
+                                        severity="error"  # unresolved unless a choice or predicate resolves it
+                                    )
+                                    root_solutions.append(
+                                    (f"lambda_{i}=0", f"Edge case: polynomial has {k_var} but degree is zero. Solver failed."))
+                                    continue
+                                log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
+                                
+                            # check for all-together vanishing eigenvalue
+                            if expr.equals(0) or expr.is_zero:
+                                log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
+                                raise ValueError(
+                                    f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
+                            # λ_i is constant in the variable to solve for
                             warnings.warn(
-                                f"Odd edge case: polynomial has {k_var} but degree is zero. Possibly due to insufficient simplification. Investigate!", stacklevel=2)
-                            log.debug("λ_%d = %s", i, expr)
-                            root_solutions.append(
-                                (f"lambda_{i}=0", f"Edge case: polynomial has {k_var} but degree is zero. Solver failed."))
+                                f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
+                            # Return empty solution set
+                            root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
                             continue
-                        # check for all-together vanishing eigenvalue
-                        if expr.equals(0) or expr.is_zero:
-                            log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
-                            raise ValueError(
-                                f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
-                        # λ_i is constant in the variable to solve for
-                        warnings.warn(
-                            f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
-                        # Return empty solution set
-                        root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
-                        continue
-                except sp.PolynomialError:
-                    # general solve
-                    log.debug("Polynomial solver failed. Trying general solver with sp.solveset.")
-                    solset = sp.solveset(
-                        sp.Eq(lambda_i, 0), k_var, domain=sp.S.Complexes)
-                    if isinstance(solset, sp.ConditionSet):
-                        warnings.warn(
-                            f"lambda_{i} not polynomial in {k_var}. solveset returns a ConditionSet.",
-                            stacklevel=2
-                        )
-                root_solutions.append((f"lambda_{i}=0", solset))
-            except Exception as e:
-                # fallback if something really unexpected happens
-                log.error("Error during solving for lambda_%d: %s", i, e)
-                root_solutions.append(
-                    (f"lambda_{i}=0", f"Error during solving."))
-            non_empty_flag = 1
+                    except sp.PolynomialError:
+                        # general solve for non-polynomial case
+                        log.debug("Polynomial solver failed. Trying general solver with sp.solveset.")
+                        solset = sp.solveset(
+                            sp.Eq(lambda_i, 0), k_var, domain=sp.S.Complexes)
+                        if isinstance(solset, sp.ConditionSet):
+                            choice_key = ("roots", f"lambda_{i}.condition_set")
+                            if choices[choice_key] != "ConditionSet":
+                                self._add_amb(
+                                    where="roots",
+                                    what=f"lambda_{i}.condition_set",
+                                    predicate=None,   # no simple predicate; depends on k0
+                                    options=["ConditionSet", "FiniteSet"],
+                                    consequence=f"Cannot solve λ_{i}(k) = 0. Returning ConditionSet.",
+                                    data={"k_var": k_var, "lambda_i": lambda_i},
+                                    severity="warn"  # try to resolve with a predicate or assumption
+                                )
+                                log.debug("Choose 'ConditionSet' for choices[%s] or provide predicate to solve %s=0", choice_key, lambda_i)
+                    root_solutions.append((f"lambda_{i}=0", solset))
+                except Exception as e:
+                    # fallback if something really unexpected happens
+                    log.error("Error during solving for lambda_%d: %s", i, e)
+                    root_solutions.append(
+                        (f"lambda_{i}=0", f"Error during solving."))
+                non_empty_flag = 1
 
-        if non_empty_flag == 0:
-            warnings.warn(
-                "None of the eigenvalues depend on k_var; G⁻¹(k) has no roots.", stacklevel=2)
-        log.info("Root solving completed.")
-        log.debug("Roots of G⁻¹(k) %s", root_solutions)
+            if non_empty_flag == 0:
+                warnings.warn(
+                    "None of the eigenvalues depend on k_var; G⁻¹(k) has no roots.", stacklevel=2)
+            log.info("Root solving completed.")
+            log.debug("Roots of G⁻¹(k) %s", root_solutions)
 
         return root_solutions
     # endregion
@@ -452,9 +465,7 @@ class GreensFunctionCalculator:
         self._reset_ambiguities()
 
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
-        if case_assumptions is None:
-            log.debug("No case_assumptions provided.")
-            case_assumptions = []
+        predicates, choices = self._split_ambiguities(case_assumptions)
 
         if not self.symbolic:
             warnings.warn(
@@ -517,7 +528,7 @@ class GreensFunctionCalculator:
 
         for i, lambda_i in enumerate(eigenvalues):
             contrib, contributed_any = self._residue_sum_for_lambda(
-                i, lambda_i, z, z_prime, k_dir, z_diff_sign, case_assumptions=case_assumptions)
+                i, lambda_i, z, z_prime, k_dir, z_diff_sign, predicates, choices)
             has_contributions = has_contributions or contributed_any
             assert contrib == 0 if not contributed_any else True, "If no poles contributed, the contribution must be zero."
             G_z_diag.append(contrib)
@@ -613,6 +624,33 @@ class GreensFunctionCalculator:
         self._ledger.reset()
         log.debug("Ambiguity ledger reset.")
     def _add_amb(self, **kw): self._ledger.add(**kw)
+    def _split_case_assumptions(self, case_assumptions):
+        # returns (predicates: list[sp.Basic], choices: dict)
+        if case_assumptions is None:
+            log.debug("No case_assumptions provided.")
+            return [], {}
+        if isinstance(case_assumptions, list):
+            log.debug("case_assumptions provided as list of predicates.")
+            return case_assumptions, {}
+        if isinstance(case_assumptions, dict):
+            preds = case_assumptions.get("predicates", [])
+            choices = case_assumptions.get("choices", {})
+            log.debug("case_assumptions provided as dict with %d predicates and %d choices.", len(preds), len(choices))
+            return preds, choices
+        raise TypeError("case_assumptions must be list or dict with 'predicates'/'choices'.")
+    def _finalize_ambiguities_or_raise(self, context: str):
+        items = self.get_ambiguities()
+        if not items:
+            return
+        # escalate if any is 'error'
+        has_error = any(a.severity == "error" for a in items)
+        summary = self.format_ambiguities()
+        if has_error:
+            log.error("Ambiguities escalated to error during %s.", context)
+            raise AggregatedAmbiguityError(
+                f"Ambiguities encountered during {context}:\n{summary}")
+        else:
+            log.warning("Ambiguities encountered during %s:\n%s", context, summary)
     def get_ambiguities(self): return self._ledger.items()
     def format_ambiguities(self): return self._ledger.format()
     # endregion
@@ -789,7 +827,7 @@ class GreensFunctionCalculator:
 
             return P, vals, D
 
-    def _residue_sum_for_lambda(self, i, lambda_i, z, z_prime, kz_sym, z_diff_sign, case_assumptions: list):
+    def _residue_sum_for_lambda(self, i, lambda_i, z, z_prime, kz_sym, z_diff_sign, predicates: list, choices: dict):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
         This method of calculating the residue is based on the assumption that the diagonal
@@ -809,9 +847,6 @@ class GreensFunctionCalculator:
         """
         contributed_any = False
 
-        ## store (k0, m, res_expr) to resolve ambiguity:
-        #ambiguous = []
-
         # Short-circuit if λ_i has no dependence on kz_sym:
         if not lambda_i.has(kz_sym):
             log.debug("Eigenvalue λ_%s does not depend on the integration variable %s.", i, kz_sym)
@@ -822,66 +857,66 @@ class GreensFunctionCalculator:
         z_diff = z - z_prime
         phase = sp.exp(sp.I * kz_sym * z_diff)
 
-        if not lambda_i.is_polynomial(kz_sym):
-            # Not polynomial (SymPy can’t reliably find poles)
-            # Triggers unevaluated integral fallback
-            warnings.warn(
-                f"Eigenvalue λ_{i} is not polynomial in {kz_sym}; returning unevaluated Fourier integral.", stacklevel=2)
-            expr = sp.Integral(phase / sp.simplify(lambda_i),
-                               (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
-            contributed_any = True
-            log.debug("The Residue Theorem could not be applied,")
-            log.debug("since λ_%s is not polynomial in %s: %s", i, kz_sym, lambda_i)
-            return expr, contributed_any
+        with sp.assuming(*predicates):
+            if not lambda_i.is_polynomial(kz_sym):
+                # Not polynomial (SymPy can’t reliably find poles)
+                # Triggers unevaluated integral fallback
+                warnings.warn(
+                    f"Eigenvalue λ_{i} is not polynomial in {kz_sym}; returning unevaluated Fourier integral.", stacklevel=2)
+                expr = sp.Integral(phase / sp.simplify(lambda_i),
+                                (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
+                contributed_any = True
+                log.debug("The Residue Theorem could not be applied,")
+                log.debug("since λ_%s is not polynomial in %s: %s", i, kz_sym, lambda_i)
+                return expr, contributed_any
 
-        # dict {root: multiplicity}
-        roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)
-        log.debug("Roots of polynomial λ_%s with multiplicities: %s", i, roots_with_mult)
+            # dict {root: multiplicity}
+            roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)
+            log.debug("Roots of polynomial λ_%s with multiplicities: %s", i, roots_with_mult)
 
-        residue_sum = 0
-        for k0, m in roots_with_mult.items():  # roots k0 with their multiplicity m
-            # Residue formula for pole of order m:
-            # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
-            expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
-            if m == 1:
-                res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
-            else:
-                deriv = sp.diff(expr, (kz_sym, m - 1))
-                res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
-            # Half-plane selector
-            sgn = sp.sign(sp.im(k0))
-            if sgn in (sp.Integer(1), sp.Integer(-1)):
-                if int(sgn) == z_diff_sign:
-                    residue_sum += res
-                    contributed_any = True
+            residue_sum = 0
+            for k0, m in roots_with_mult.items():  # roots k0 with their multiplicity m
+                # Residue formula for pole of order m:
+                # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
+                expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
+                if m == 1:
+                    res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
                 else:
-                    log.debug("Pole %s=%s (m=%s) lies in wrong half-plane; skipped.", kz_sym, k0, m)
-            else:
-                #ambiguous.append((k0, m, res))
-                raise ValueError(
-                    "Indeterminate pole selection: sign(Im(root)) is unknown. "
-                    "Provide further assumptions to resolve."
-                )
+                    deriv = sp.diff(expr, (kz_sym, m - 1))
+                    res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
+                # Half-plane selector
+                sgn = sp.sign(sp.im(k0))
+                if sgn in (sp.Integer(1), sp.Integer(-1)):
+                    if int(sgn) == z_diff_sign:
+                        residue_sum += res
+                        contributed_any = True
+                    else:
+                        log.debug("Pole %s=%s (m=%s) lies in wrong half-plane; skipped.", kz_sym, k0, m)
+                elif sgn == 0:
+                    # pole lies exactly on the real axis
+                    raise ValueError(
+                        f"Pole at {kz_sym}={k0} (m={m}) lies on the real axis; integral is ill-defined. Provide finite broadening η.")
+                else:
+                    choice_key = ("residue", f"lambda_{i}.sign_im_root")
+                    if choices.get(choice_key) in (+1, -1):
+                        log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
+                        if choices[choice_key] == z_diff_sign:
+                            residue_sum += res
+                            contributed_any = True
+                        else: 
+                            log.debug("Pole %s=%s (m=%s) lies in wrong half-plane; skipped.", kz_sym, k0, m)
+                    else:
+                        self._add_amb(
+                            where="residue",
+                            what=f"lambda_{i}.sign_im_root",
+                            predicate=None,                     # no simple predicate; depends on k0
+                            options=[+1, -1],
+                            consequence="Cannot choose contour pole; G(z,z') ambiguous.",
+                            data={"k0": k0, "multiplicity": int(m), "lambda_i": lambda_i},
+                            severity="error"  # unresolved unless a choice or predicate resolves it
+                        )
 
-            # If using assumptions, resolve ambiguous ones now
-            #if ambiguous:
-            #    if not case_assumptions:
-            #        raise ValueError(
-            #            "Indeterminate pole selection and no case_assumptions provided. "
-            #            "Pass e.g. case_assumptions=[sp.Q.positive(omega - V_F)]"
-            #        )
-            #    extra = 0
-            #    for a in case_assumptions:
-            #        with sp.assuming(a):
-            #            for (k0, m, res_expr) in ambiguous:
-            #                s = sp.sign(sp.im(k0))
-            #                if s in (sp.Integer(1), sp.Integer(-1)) and int(s) == z_diff_sign:
-            #                    extra += sp.simplify(res_expr)
-            #                    contributed_any = True
-            #    residue_sum += extra
-
-
-        contrib = sp.I * residue_sum  # factor of i from residue theorem
+            contrib = sp.I * residue_sum  # factor of i from residue theorem
 
         return contrib, contributed_any
     # endregion
