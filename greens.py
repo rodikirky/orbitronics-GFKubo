@@ -57,10 +57,7 @@ class GreensFunctionCalculator:
                  broadening: Union[float, sp.Basic] = None,
                  # defaults to retarded Green's functions
                  retarded: bool = True,
-                 # defaults to non-verbose
-                 # if verbose=True, intermediate steps will be printed out
-                 dimension: int = 3,
-                 verbose: bool = False):
+                 dimension: int = 3):
         """
         Calculator for k-space and real-space Green’s functions.
 
@@ -87,8 +84,6 @@ class GreensFunctionCalculator:
             if True computes retarded Green's function; else advanced
         dimension: Int
             spatial dimension of the system (1, 2, or 3), defaults to 3
-        verbose: Boolean
-            if True, prints intermediate matrix states for debugging
 
         Notes
         -----
@@ -154,9 +149,6 @@ class GreensFunctionCalculator:
         else:
             # numeric path: you still need the length for checks
             self.k_symbols = [None] * self.d
-
-        # for easy debugging along the way
-        self.verbose = verbose
 
         self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
 
@@ -525,7 +517,7 @@ class GreensFunctionCalculator:
 
         for i, lambda_i in enumerate(eigenvalues):
             contrib, contributed_any = self._residue_sum_for_lambda(
-                lambda_i, z, z_prime, k_dir, z_diff_sign, case_assumptions=case_assumptions)
+                i, lambda_i, z, z_prime, k_dir, z_diff_sign, case_assumptions=case_assumptions)
             has_contributions = has_contributions or contributed_any
             assert contrib == 0 if not contributed_any else True, "If no poles contributed, the contribution must be zero."
             G_z_diag.append(contrib)
@@ -795,14 +787,9 @@ class GreensFunctionCalculator:
                 raise ValueError(
                     "Eigendecomposition failed: reconstruction error above tolerance.")
 
-            if self.verbose:
-                print("\nDiagonal elements (eigenvalues) of G⁻¹(k):")
-                for i, lam in enumerate(vals):
-                    print(f"λ[{i}] = {lam}")
-
             return P, vals, D
 
-    def _residue_sum_for_lambda(self, lambda_i, z, z_prime, kz_sym, z_diff_sign, case_assumptions: list):
+    def _residue_sum_for_lambda(self, i, lambda_i, z, z_prime, kz_sym, z_diff_sign, case_assumptions: list):
         """
         Apply the residue theorem to compute the contribution to G(z, z′) from one eigenvalue λᵢ.
         This method of calculating the residue is based on the assumption that the diagonal
@@ -826,11 +813,11 @@ class GreensFunctionCalculator:
         #ambiguous = []
 
         # Short-circuit if λ_i has no dependence on kz_sym:
-        if kz_sym not in lambda_i.free_symbols:
-                if self.verbose:
-                    print(f"The eigenvalue {lambda_i} does not depend on the integration variable: {kz_sym}.")
-                contrib = 0
-                return contrib, contributed_any
+        if not lambda_i.has(kz_sym):
+            log.debug("Eigenvalue λ_%s does not depend on the integration variable %s.", i, kz_sym)
+            log.debug("λ_%s = %s", i, lambda_i)
+            contrib = 0
+            return contrib, contributed_any
 
         z_diff = z - z_prime
         phase = sp.exp(sp.I * kz_sym * z_diff)
@@ -839,21 +826,17 @@ class GreensFunctionCalculator:
             # Not polynomial (SymPy can’t reliably find poles)
             # Triggers unevaluated integral fallback
             warnings.warn(
-                f"Eigenvalue is not polynomial in k; returning unevaluated Fourier integral.", stacklevel=2)
+                f"Eigenvalue λ_{i} is not polynomial in {kz_sym}; returning unevaluated Fourier integral.", stacklevel=2)
             expr = sp.Integral(phase / sp.simplify(lambda_i),
                                (kz_sym, -sp.oo, sp.oo)) / (2*sp.pi)
             contributed_any = True
-            if self.verbose:
-                print(
-                    f"\nUnevaluated integral expression for G(k) diagonal entry: {expr}")
-                print("The Residue Theorem was not applied.")
+            log.debug("The Residue Theorem could not be applied,")
+            log.debug("since λ_%s is not polynomial in %s: %s", i, kz_sym, lambda_i)
             return expr, contributed_any
 
         # dict {root: multiplicity}
         roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)
-        if self.verbose:
-            print(
-                f"\nFound roots of eigenvalue {lambda_i}: {roots_with_mult} (root: multiplicity)")
+        log.debug("Roots of polynomial λ_%s with multiplicities: %s", i, roots_with_mult)
 
         residue_sum = 0
         for k0, m in roots_with_mult.items():  # roots k0 with their multiplicity m
@@ -871,14 +854,13 @@ class GreensFunctionCalculator:
                 if int(sgn) == z_diff_sign:
                     residue_sum += res
                     contributed_any = True
-                elif self.verbose:
-                    print(
-                        f"\nPole k={k0} (m={m}) lies in wrong half-plane; skipped.")
+                else:
+                    log.debug("Pole %s=%s (m=%s) lies in wrong half-plane; skipped.", kz_sym, k0, m)
             else:
                 #ambiguous.append((k0, m, res))
                 raise ValueError(
-                    "Indeterminate pole selection: sign(Im(k0)) is unknown. "
-                    "Provide further assumptions (e.g. sp.Q.positive(omega - V_F)) to resolve."
+                    "Indeterminate pole selection: sign(Im(root)) is unknown. "
+                    "Provide further assumptions to resolve."
                 )
 
             # If using assumptions, resolve ambiguous ones now
