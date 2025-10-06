@@ -467,6 +467,9 @@ class GreensFunctionCalculator:
         self._reset_ambiguities()
 
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
+        assumptions_made = False
+        if case_assumptions is not None: 
+            assumptions_made = True
         predicates, choices = self._split_case_assumptions(case_assumptions)
 
         if not self.symbolic:
@@ -537,7 +540,8 @@ class GreensFunctionCalculator:
 
             log.debug("Processed eigenvalue λ_%d=%s.", i, lambda_i)
             log.debug("Diagonal entry to G(z,z') #%d: %s", i, contrib)
-            
+        self._finalize_ambiguities_or_raise(context="root solving")   
+
         if not has_contributions:
             warnings.warn(
                 "No poles passed the sign check; returning zero Green's function.", stacklevel=2)
@@ -550,8 +554,9 @@ class GreensFunctionCalculator:
 
         G_z = sp.diag(*G_z_diag)
         log.info("1D real-space %s Green's function G(%s,%s) successfully computed.", self.green_type, z, z_prime)
-        #log.info(f"Additional assumptions made: {case_assumptions}") if case_assumptions else log.info("No additional case assumptions fed to the solver.")
-        #log.info("If assumptions need to be altered, rerun with the appropriate case_assumptions parameter.") 
+        if assumptions_made == True:
+            log.info(f"Note: Additional assumptions were made. Keep in mind.") 
+            log.debug("Case assumptions: %s", case_assumptions)
 
         # Note: Currently returning only diagonal Green's function G(z, z′)
         # Full matrix reconstruction from eigenbasis can be added if needed:
@@ -562,7 +567,6 @@ class GreensFunctionCalculator:
             return G_full
             
         log.info("Note: Only diagonal entries are returned by default.") 
-        self._finalize_ambiguities_or_raise(context="root solving")
         return G_z
 
     def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
@@ -651,7 +655,7 @@ class GreensFunctionCalculator:
         if has_error:
             log.error("Ambiguities escalated to error during %s.", context)
             raise AggregatedAmbiguityError(
-                f"Ambiguities encountered during {context}:\n{summary}")
+                f"Ambiguities encountered during {context}:\n{summary}", items=items)
         else:
             log.warning("Ambiguities encountered during %s:\n%s", context, summary)
     def get_ambiguities(self): return self._ledger.items()
@@ -671,6 +675,75 @@ class GreensFunctionCalculator:
             if z < z_prime:  return -1
             return 0
         return None
+    
+    def _im_sign_of_root(self, k0, eta_symbol=None, predicates=None):
+        """
+        Try to determine sign(Im(k0)) robustly.
+        Returns +1, -1, or None if undecidable.
+        """
+        predicates = predicates or []
+
+        # 1) Direct attempt under assumptions
+        with sp.assuming(*predicates):
+            s = sp.sign(sp.im(k0))
+            if s in (sp.Integer(1), sp.Integer(-1)):
+                return int(s)
+            if s == 0:
+                return 0
+
+        # 2) η -> 0+ limit (if an eta symbol is known/used)
+        if eta_symbol is None:
+            # try to infer your η
+            eta_symbol = getattr(self, "eta", None)
+            if not isinstance(eta_symbol, sp.Symbol):
+                eta_symbol = None
+        if isinstance(eta_symbol, sp.Symbol) and k0.has(eta_symbol):
+            with sp.assuming(*predicates):
+                try:
+                    lim_im = sp.limit(sp.im(k0), eta_symbol, 0, dir='+')
+                    s = sp.sign(sp.simplify(lim_im))
+                    if s in (sp.Integer(1), sp.Integer(-1)):
+                        return int(s)
+                    if s == 0:
+                        return 0
+                except Exception:
+                    pass
+
+        # 3) sqrt(a + I*b) pattern
+        try:
+            base = k0
+            print("base = ", base)
+            print("base.func: ", base.func)
+            base_squared = sp.simplify(sp.together(k0**2))
+            print("base_squared = ", base_squared)
+            print("base_squared.func = ", base_squared.func)
+            sign_flip = 1
+            if base.func is sp.Mul:
+                # factor out explicit -1 if present
+                coeffs = [arg for arg in base.args if arg.is_Number]
+                print("coeffs =", coeffs)
+                if any(c == -1 for c in coeffs):
+                    sign_flip = -1
+                    base = sp.Mul(*(a for a in base.args if a != -1))
+            if base.func is sp.sqrt:
+                expr = base.args[0]
+                with sp.assuming(*predicates):
+                    b = sp.im(expr)
+                    s = sp.sign(sp.simplify(b))
+                    if s in (sp.Integer(1), sp.Integer(-1)):
+                        return sign_flip * int(s)
+                    if s == 0:
+                        return 0
+            b = sp.im(base_squared)
+            print("b = ", b)
+            s = sp.sign(sp.simplify(b))
+            print("s = ", s)
+            if s in (sp.Integer(1), sp.Integer(-1)):
+                return sign_flip * int(s)
+            if s == 0:
+                return 0
+        except Exception:
+            pass
     
     def _eigenvalues_greens_inverse(self, momentum: ArrayLike | None = None) -> tuple[MatrixLike, list[sp.Expr] | np.ndarray, MatrixLike]:
 
@@ -888,7 +961,7 @@ class GreensFunctionCalculator:
                     deriv = sp.diff(expr, (kz_sym, m - 1))
                     res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
                 # Half-plane selector
-                sgn = sp.sign(sp.im(k0))
+                sgn = self._im_sign_of_root(k0, predicates=predicates)
                 if sgn in (sp.Integer(1), sp.Integer(-1)):
                     if int(sgn) == z_diff_sign:
                         residue_sum += res
