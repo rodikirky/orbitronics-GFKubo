@@ -676,12 +676,14 @@ class GreensFunctionCalculator:
             return 0
         return None
     
-    def _im_sign_of_root(self, k0, eta_symbol=None, predicates=None):
+    def _im_sign_of_root(self, k0, i, n, predicates=None, choices=None):
         """
         Try to determine sign(Im(k0)) robustly.
         Returns +1, -1, or None if undecidable.
         """
         predicates = predicates or []
+        choices = choices or {}
+        log.debug("Determining sign of Im(k0) for root k0=%s", k0)
 
         # 1) Direct attempt under assumptions
         with sp.assuming(*predicates):
@@ -690,60 +692,124 @@ class GreensFunctionCalculator:
                 return int(s)
             if s == 0:
                 return 0
+            log.debug("Direct sign(Im(k0)) check inconclusive.")
 
-        # 2) η -> 0+ limit (if an eta symbol is known/used)
-        if eta_symbol is None:
-            # try to infer your η
-            eta_symbol = getattr(self, "eta", None)
-            if not isinstance(eta_symbol, sp.Symbol):
-                eta_symbol = None
-        if isinstance(eta_symbol, sp.Symbol) and k0.has(eta_symbol):
+        # 2) c*sqrt(a + I*b) pattern
+        ## if c is positive, the sign of Im(k0) is the sign of b
+        base = sp.cancel(k0)
+        sign_flip = 1
+        if base.func is sp.Mul:
+            # factor out explicit -1 if present
+            coeffs = [c for c in base.args if c.is_number]
+            coefficient = sp.Mul.fromiter(coeffs) if coeffs else sp.Integer(1)
+            log.debug("Full coefficient factored out: %s", coefficient)
+            negs = [c for c in coeffs if c < 0]
+            n = len(negs)
+            log.debug("%d negative coefficients", n)
+            sign_flip = (-1)**n
+            assert sp.sign(coefficient) == sign_flip, "Coefficient sign mismatch."
+            # separate sqrt factors from others
+            base = sp.expand(base/coefficient)
+        if base.func is sp.sqrt:
+            log.debug("k0 is a sqrt function.")
+            base_squared = sp.simplify(sp.cancel(k0**2))
+            log.debug("k0^2 = %s ", base_squared)
             with sp.assuming(*predicates):
-                try:
-                    lim_im = sp.limit(sp.im(k0), eta_symbol, 0, dir='+')
-                    s = sp.sign(sp.simplify(lim_im))
-                    if s in (sp.Integer(1), sp.Integer(-1)):
-                        return int(s)
-                    if s == 0:
-                        return 0
-                except Exception:
-                    pass
-
-        # 3) sqrt(a + I*b) pattern
-        try:
-            base = k0
-            print("base = ", base)
-            print("base.func: ", base.func)
-            base_squared = sp.simplify(sp.together(k0**2))
-            print("base_squared = ", base_squared)
-            print("base_squared.func = ", base_squared.func)
-            sign_flip = 1
-            if base.func is sp.Mul:
-                # factor out explicit -1 if present
-                coeffs = [arg for arg in base.args if arg.is_Number]
-                print("coeffs =", coeffs)
-                if any(c == -1 for c in coeffs):
-                    sign_flip = -1
-                    base = sp.Mul(*(a for a in base.args if a != -1))
-            if base.func is sp.sqrt:
-                expr = base.args[0]
+                b = sp.im(base_squared)
+                s = sp.sign(sp.simplify(b))
+                if s in (sp.Integer(1), sp.Integer(-1)):
+                    return sign_flip * int(s)
+                if s == 0:
+                    return 0
+                log.debug("Sign of Im(k0^2) inconclusive.")
+        else:
+            choice_key = ("im_sign_root", f"lambda_{i}.root_{n}.sqrt_form")
+            if choices.get(choice_key) is True:
+                log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
+                log.debug("Assuming k0 is a sqrt function.")
+                base_squared = sp.simplify(sp.cancel(k0**2))
+                log.debug("k0^2 = %s ", base_squared)
                 with sp.assuming(*predicates):
-                    b = sp.im(expr)
+                    b = sp.im(base_squared)
                     s = sp.sign(sp.simplify(b))
                     if s in (sp.Integer(1), sp.Integer(-1)):
                         return sign_flip * int(s)
                     if s == 0:
                         return 0
-            b = sp.im(base_squared)
-            print("b = ", b)
-            s = sp.sign(sp.simplify(b))
-            print("s = ", s)
-            if s in (sp.Integer(1), sp.Integer(-1)):
-                return sign_flip * int(s)
-            if s == 0:
-                return 0
-        except Exception:
-            pass
+                    log.debug("Sign of Im(k0^2) inconclusive.")
+            elif choices.get(choice_key) is False:
+                log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
+                log.debug("Assuming k0 is NOT a sqrt function.")
+            else:
+                self._add_amb(
+                    where="im_sign_root",
+                    what=f"lambda_{i}.root_{n}.sqrt_form",
+                    predicate=None,  
+                    options=[True, False],
+                    consequence="Cannot decide, if k0 is a sqrt function.",
+                    data={"k0": k0, "base without coeffs": base, "base func": base.func},
+                    severity="error"  # unresolved unless a choice or predicate resolves it
+                )
+                return s
+
+        # 3) η -> 0+ limit (if an eta symbol is known/used)
+        ## Taylor expansion around η=0 up to second order
+        log.debug("Trying Taylor expansion to determine sign(Im(k0)).")
+        assert k0.has(self.eta), "Expected k0 to depend on eta for limit test."
+        with sp.assuming(*predicates):
+            try:
+                zero_order = k0.subs(self.eta, 0)
+                first_order = sp.diff(k0, self.eta).subs(self.eta, 0)
+                second_order = sp.diff(k0, self.eta, 2).subs(self.eta, 0)
+                if sp.im(zero_order) != 0:
+                    log.debug("Im(k0) at η=0 is non-zero.")
+                    s = sp.sign(sp.im(zero_order))
+                    if s in (sp.Integer(1), sp.Integer(-1)):
+                        return int(s)
+                    if s == 0:
+                        return 0
+                    log.debug("Sign of Im(k0) at η=0 inconclusive.")
+                elif first_order != 0:
+                    log.debug("Im(k0) at η=0 is zero, Im(d k0/d eta) is not.")
+                    s = sp.sign(sp.im(first_order))
+                    if s in (sp.Integer(1), sp.Integer(-1)):
+                        return int(s)
+                    if s == 0:
+                        return 0
+                    log.debug("Sign of first order expansion Im(k0) at η=0 inconclusive.")
+                elif second_order != 0:
+                    log.debug("First order expansion Im(k0) at η=0 is zero, Im(d^2 k0/d eta^2) is not.")
+                    s = sp.sign(sp.im(second_order))
+                    if s in (sp.Integer(1), sp.Integer(-1)):
+                        return int(s)
+                    if s == 0:
+                        return 0
+                    log.debug("Sign of second order expansion Im(k0) at η=0 inconclusive.")
+                    pass
+                else:
+                    log.debug("Second order expansion Im(k0) at η=0 is zero.")
+                    log.debug("Taylor expansion inconclusive.")
+            except Exception as e:
+                log.error("Taylor expansion failed: %s", e)
+                pass
+        # 4) Final fallback: manual disambiguation via choice
+        choice_key = ("im_sign_root", f"lambda_{i}.root_{n}.im_sign")
+        if choices.get(choice_key) in (+1, -1, 0):
+            log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
+            return choices[choice_key]
+        else:
+            self._add_amb(
+                where="im_sign_root",
+                what=f"lambda_{i}.root_{n}.im_sign",
+                predicate=None,  
+                options=[+1, -1, 0],
+                consequence="Cannot decide sign(Im(k0)).",
+                data={"k0": k0},
+                severity="error"  # unresolved unless a choice or predicate resolves it
+            )
+            return s
+
+        
     
     def _eigenvalues_greens_inverse(self, momentum: ArrayLike | None = None) -> tuple[MatrixLike, list[sp.Expr] | np.ndarray, MatrixLike]:
 
@@ -950,49 +1016,53 @@ class GreensFunctionCalculator:
             roots_with_mult = sp.roots(sp.simplify(lambda_i), kz_sym)
             log.debug("Roots of polynomial λ_%s with multiplicities: %s", i, roots_with_mult)
 
+            # factorize lambda_i (polynomial with known roots):
+            leading_coeff = sp.Poly(lambda_i, kz_sym).LC() 
+            factors = [(kz_sym - r)**m for r, m in roots_with_mult.items()]
+            lambda_fact = leading_coeff * sp.Mul.fromiter(factors)
+            log.debug("lambda_fact = %s", lambda_fact)
+            zero_check = sp.simplify(lambda_fact - lambda_i)
+            log.debug("Must be zero: lambda_fact - lambda_i = %s", zero_check)
+            assert zero_check.is_zero or zero_check.equals(0), "Factorization must not change lambda."
+
             residue_sum = 0
-            for k0, m in roots_with_mult.items():  # roots k0 with their multiplicity m
-                # Residue formula for pole of order m:
-                # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
-                expr = sp.simplify(((kz_sym - k0)**m) * phase / lambda_i)
-                if m == 1:
-                    res = sp.simplify(expr.subs(kz_sym, k0))  # zero-th derivative
-                else:
-                    deriv = sp.diff(expr, (kz_sym, m - 1))
-                    res = sp.simplify(deriv.subs(kz_sym, k0) / sp.factorial(m - 1))
-                # Half-plane selector
-                sgn = self._im_sign_of_root(k0, predicates=predicates)
-                if sgn in (sp.Integer(1), sp.Integer(-1)):
-                    if int(sgn) == z_diff_sign:
-                        residue_sum += res
-                        contributed_any = True
-                    else:
-                        log.debug("Pole %s=%s (m=%s) lies in wrong half-plane; skipped.", kz_sym, k0, m)
+            for n, (k0, m) in enumerate(roots_with_mult.items()):  # roots k0 with their multiplicity m
+                log.debug("root_%d of lambda_%d: k0 = %s, m = %s", n, i, k0, m)
+                assert kz_sym not in k0.free_symbols, "root must not depend on kz_sym" # safeguard
+
+                # Halfplane selection
+                sgn = self._im_sign_of_root(k0, i, n, predicates=predicates, choices=choices)
+                if sgn not in (-1, 0, 1):
+                    log.debug("Sign of Im(k0) for root k0 = %s of lambda_%d could not be determined.", k0, i)
+                    continue  # ambiguity recorded; skip this root for now
+                elif sgn in (-1, 1) and int(sgn) != z_diff_sign:
+                    log.debug("Pole %s=%s (m=%s) of lambda_%d lies in wrong half-plane; skipped.", kz_sym, k0, m, i)
+                    continue
                 elif sgn == 0:
-                    # pole lies exactly on the real axis
                     raise ValueError(
                         f"Pole at {kz_sym}={k0} (m={m}) lies on the real axis; integral is ill-defined. Provide finite broadening η.")
+                assert sgn == z_diff_sign, "If we reach this point after halfplane selection, the signs must match."
+
+                # Residue formula for pole of order m:
+                # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * phi / lambda_i(k) ] at k=k0
+                fraction = sp.cancel((kz_sym - k0)**m *phase/ lambda_fact)
+                log.debug("residue fraction = %s", fraction)
+                log.debug("free symbols in fraction: %s", fraction.free_symbols)
+                if m == 1:
+                    res = sp.simplify(fraction.subs(kz_sym, k0))  # zero-th derivative
+                    log.debug("after subs and simpl: res = %s", res)
                 else:
-                    choice_key = ("residue", f"lambda_{i}.sign_im_root")
-                    if choices.get(choice_key) in (+1, -1):
-                        log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
-                        if choices[choice_key] == z_diff_sign:
-                            residue_sum += res
-                            contributed_any = True
-                        else: 
-                            log.debug("Pole %s=%s (m=%s) lies in wrong half-plane; skipped.", kz_sym, k0, m)
-                    else:
-                        self._add_amb(
-                            where="residue",
-                            what=f"lambda_{i}.sign_im_root",
-                            predicate=None,                     # no simple predicate; depends on k0
-                            options=[+1, -1],
-                            consequence="Cannot choose contour pole; G(z,z') ambiguous.",
-                            data={"k0": k0, "multiplicity": int(m), "lambda_i": lambda_i},
-                            severity="error"  # unresolved unless a choice or predicate resolves it
-                        )
+                    deriv = sp.cancel(sp.diff(fraction, (kz_sym, m - 1)))
+                    res = sp.simplify(sp.cancel(deriv.subs(kz_sym, k0) / sp.factorial(m - 1)))
+            
+                residue_sum += res
+                contributed_any = True
+                log.debug("Pole %s=%s (m=%s) contributed to the residue sum.", kz_sym, k0, m)
+                log.debug("res contrib: %s", res)
+                log.debug("res sum snapshot: %s", residue_sum)
 
             contrib = sp.I * residue_sum  # factor of i from residue theorem
+            log.debug("lambda_%s: %s ", i, contrib)
 
         return contrib, contributed_any
     # endregion
