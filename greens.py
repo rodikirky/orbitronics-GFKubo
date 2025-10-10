@@ -152,8 +152,8 @@ class GreensFunctionCalculator:
 
         self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
 
-        log.debug("Initialized %r", self) # developer snapshot for logs
-        log.info("Snapshot:\n%s", self) # readable banner for operators/notebooks
+        #log.debug("Initialized %r", self) # developer snapshot for logs
+        log.info("Initialized %s", self) # readable banner for operators/notebooks
         self._ledger = AmbiguityLedger()
     
     def __repr__(self):
@@ -566,7 +566,7 @@ class GreensFunctionCalculator:
             log.info("The full Green's function matrix in the original basis is returned.")
             return G_full
             
-        log.info("Note: Only diagonal entries are returned by default.") 
+        log.info("Note: Only diagonal entries are returned by default. Choose full_matrix=True for the full matrix in the original basis.") 
         return G_z
 
     def compute_rspace_greens_symbolic_1d(self, z, z_prime, full_matrix: bool = False):
@@ -716,6 +716,7 @@ class GreensFunctionCalculator:
             log.debug("k0^2 = %s ", base_squared)
             with sp.assuming(*predicates):
                 b = sp.im(base_squared)
+                log.debug("Imaginary part of k0^2: Im(k0^2) = %s", b)
                 s = sp.sign(sp.simplify(b))
                 if s in (sp.Integer(1), sp.Integer(-1)):
                     return sign_flip * int(s)
@@ -731,6 +732,7 @@ class GreensFunctionCalculator:
                 log.debug("k0^2 = %s ", base_squared)
                 with sp.assuming(*predicates):
                     b = sp.im(base_squared)
+                    log.debug("Imaginary part of k0^2: Im(k0^2) = %s", b)
                     s = sp.sign(sp.simplify(b))
                     if s in (sp.Integer(1), sp.Integer(-1)):
                         return sign_flip * int(s)
