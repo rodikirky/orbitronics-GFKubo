@@ -210,27 +210,7 @@ class GreensFunctionCalculator:
     # endregion
 
     # region k-space Green’s function
-    def compute_kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
-        """
-        Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
-        (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
-
-        Parameters
-        ----------
-        momentum: ArrayLike or None
-            value at which the Hamiltonian is evaluated
-            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
-
-        Returns
-        ---------
-        G(k) as np.ndarray or sp.Matrix
-            Green's function in momentum space
-
-        Raises
-        ------
-        ValueError
-            If called in numeric mode without a specific momentum value.
-        """
+    def get_greens_inverse(self, momentum: ArrayLike | None = None) -> MatrixLike:
         self._reset_ambiguities()
         log.debug("Computing G(k) with: momentum=%s (symbolic=%s)", momentum, self.symbolic)
 
@@ -252,10 +232,33 @@ class GreensFunctionCalculator:
         G_inv = (self.omega + self.q * self.eta *
                  imaginary_unit) * self.I - H_k
         log.debug("Formed G^{-1}(k) = (ω %s iη)I - H(k)", "+" if self.q==1 else "-")
+        return G_inv
+
+    def compute_kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
+        """
+        Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
+        (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
+
+        Parameters
+        ----------
+        momentum: ArrayLike or None
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
+
+        Returns
+        ---------
+        G(k) as np.ndarray or sp.Matrix
+            Green's function in momentum space
+
+        Raises
+        ------
+        ValueError
+            If called in numeric mode without a specific momentum value.
+        """
+        G_inv = self.get_greens_inverse(momentum) if momentum is not None else self.get_greens_inverse()
         G_k = invert_matrix(G_inv, symbolic=self.symbolic)
         log.info("G(k) computed successfully.") 
         log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")     
-
         return G_k
     # endregion
 

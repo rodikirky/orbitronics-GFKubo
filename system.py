@@ -86,8 +86,8 @@ class OrbitronicHamiltonianSystem:
             mode = "sym" if self.symbolic else "num"
             I_shape = self.identity.shape
             return (f"{self.__class__.__name__}("
-                    f"mode={mode}, m={self.mass}, I_shape={I_shape}, "
-                    f"gamma={self.gamma}, J={self.J}, M={self.M})")
+                    f"mode={mode}, mass={self.mass}, I_shape={I_shape}, "
+                    f"gamma={self.gamma}, J={self.J}, magnetisation={self.M})")
         except Exception:
             return f"{self.__class__.__name__}(unprintable; id=0x{id(self):x})"
 

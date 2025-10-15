@@ -1,5 +1,6 @@
 import numpy as np
 import sympy as sp
+from sympy.matrices.common import NonInvertibleMatrixError
 from typing import Union, Optional
 
 
@@ -18,10 +19,15 @@ def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
     This function raises an error message, if the matrix is not invertible.
     """
     if symbolic:
-        if matrix.det() == 0:
-            raise ValueError("Matrix is not invertible (symbolic)")
-        return matrix.inv()
+        #if matrix.det() == 0: # ==0 not reliable, new solution needed
+        #    raise ValueError("Matrix is not invertible (symbolic)")
+        assert isinstance(matrix, sp.Matrix), f"Expected sympy.Matrix for symbolic inversion, got {type(matrix)}"
+        try:
+            return matrix.inv(method='LU') # LU method is more robust than default
+        except NonInvertibleMatrixError:
+            raise ValueError("Matrix is not invertible (symbolic) under current assumptions.")
     else:
+        assert isinstance(matrix, np.ndarray), f"Expected np.ndarray for numeric inversion, got {type(matrix)}"
         try:
             return np.linalg.inv(matrix)
         except np.linalg.LinAlgError:
