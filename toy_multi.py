@@ -17,8 +17,8 @@ symbolic_mode = True
 mass = sp.symbols("m", real=True, positive=True)
 orbital_texture_coupling = sp.symbols("gamma", real=True)
 #orbital_texture_coupling = 0
-#exchange_interaction_coupling = sp.symbols("J", real=True)
-exchange_interaction_coupling = 0
+exchange_interaction_coupling = sp.symbols("J", real=True)
+#exchange_interaction_coupling = 0
 mag1, mag2, mag3 = sp.symbols("M_1 M_2 M_3", real=True)
 magnetisation = sanitize_vector([mag1, mag2, mag3], symbolic=symbolic_mode)
 
@@ -51,8 +51,9 @@ G_inv = greenscalculator.get_greens_inverse()
 #G_k = G_inv.inv(method='LU') if symbolic_mode else np.linalg.inv(G_inv) # the method choice was the game changer
 #print_symbolic_matrix(G_k, name="G(k,ω)")
 #G_k = invert_matrix(G_inv, symbolic=symbolic_mode)
-G_k = greenscalculator.compute_kspace_greens_function() 
-print_symbolic_matrix(G_k, name="G(k,ω)")
-#roots = greenscalculator.compute_roots_greens_inverse(solve_for=0) # takes too long
+#G_k = greenscalculator.compute_kspace_greens_function() 
+#print_symbolic_matrix(G_k, name="G(k,ω)")
+roots = greenscalculator.compute_roots_greens_inverse(solve_for=0) 
+print("Roots of det(G^{-1}(k,ω))=0:", roots)
 
 
