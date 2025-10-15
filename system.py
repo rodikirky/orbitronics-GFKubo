@@ -93,10 +93,10 @@ class OrbitronicHamiltonianSystem:
 
     def set_basis(self, basis: Union[np.ndarray, sp.Matrix]) -> None:
         """Set angular momentum operators in the given basis."""
-        b = self.backend
-        Lx = self.make_matrix([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]])
-        Ly = self.make_matrix([[0, 0, 1j], [0, 0, 0], [-1j, 0, 0]])
-        Lz = self.make_matrix([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]])
+        imaginary_unit = sp.I if self.symbolic else 1j
+        Lx = self.make_matrix([[0, 0, 0], [0, 0, -imaginary_unit], [0, imaginary_unit, 0]])
+        Ly = self.make_matrix([[0, 0, imaginary_unit], [0, 0, 0], [-imaginary_unit, 0, 0]])
+        Lz = self.make_matrix([[0, -imaginary_unit, 0], [imaginary_unit, 0, 0], [0, 0, 0]])
         I = self.identity
 
         self.basis = self.make_matrix(basis)
