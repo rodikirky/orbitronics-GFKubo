@@ -2,6 +2,10 @@ from typing import Union, List, Optional
 import numpy as np
 import sympy as sp
 from utils import is_unitary, sanitize_vector, get_identity, print_symbolic_matrix
+import logging
+
+__all__ = ["OrbitronicHamiltonianSystem"]
+log = logging.getLogger(__name__)
 
 
 class OrbitronicHamiltonianSystem:
@@ -16,10 +20,7 @@ class OrbitronicHamiltonianSystem:
                  # default leads to canonical L matrices
                  basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
                  # defaults to numeric mode
-                 symbolic: bool = False,
-                 # defaults to non-verbose
-                 # if verbose=True, intermediate steps will be printed out
-                 verbose: bool = False):
+                 symbolic: bool = False):
         """
         OrbitronicHamiltonianSystem represents an orbitronic single-particle (non-interacting) quantum system 
         in either a symbolic or numeric mode with multiple angular momentum channels (L=1) represented
@@ -37,12 +38,7 @@ class OrbitronicHamiltonianSystem:
         - magnetisation: 3D vector representing magnetic moment
         - basis: Optional 3×3 matrix defining basis transformation
         - symbolic: Whether to use symbolic backend (SymPy) or numeric (NumPy)
-        - verbose: If True, prints internal calculations for debugging
         """
-
-        def _is_symbolic(val):
-            return isinstance(val, sp.Basic)
-
         # Check consistency if symbolic=False
         if not symbolic:
             scalar_params = {
@@ -51,7 +47,7 @@ class OrbitronicHamiltonianSystem:
                 "exchange_interaction_coupling": exchange_interaction_coupling
             }
             for name, val in scalar_params.items():
-                if _is_symbolic(val):
+                if self._is_symbolic(val):
                     raise TypeError(
                         f"Cannot use symbolic value for '{name}' when symbolic=False.\n"
                         f"Hint: Set symbolic=True if you want to use symbols like '{val}'."
@@ -59,7 +55,7 @@ class OrbitronicHamiltonianSystem:
 
             if isinstance(magnetisation, (list, tuple, np.ndarray)):
                 for i, val in enumerate(magnetisation):
-                    if _is_symbolic(val):
+                    if self._is_symbolic(val):
                         raise TypeError(
                             f"Cannot use symbolic value for 'magnetisation[{i}]' when symbolic=False.\n"
                             f"Hint: Set symbolic=True if you want to use symbols like '{val}'."
@@ -68,9 +64,6 @@ class OrbitronicHamiltonianSystem:
         # Set symbolic/numeric mode
         self.symbolic = symbolic
         self.backend = sp if symbolic else np
-
-        # for easy debugging along the way
-        self.verbose = verbose
 
         self.mass = sp.sympify(mass) if symbolic else float(mass)
         if not self.mass > 0:
@@ -85,6 +78,18 @@ class OrbitronicHamiltonianSystem:
         self.identity = get_identity(3, symbolic)
         self.make_matrix = sp.Matrix if symbolic else np.array
         self.set_basis(self.identity if basis is None else basis)
+
+        log.debug("Initialized %r", self) # developer snapshot
+
+    def __repr__(self):
+        try:
+            mode = "sym" if self.symbolic else "num"
+            I_shape = self.identity.shape
+            return (f"{self.__class__.__name__}("
+                    f"mode={mode}, m={self.mass}, I_shape={I_shape}, "
+                    f"gamma={self.gamma}, J={self.J}, M={self.M})")
+        except Exception:
+            return f"{self.__class__.__name__}(unprintable; id=0x{id(self):x})"
 
     def set_basis(self, basis: Union[np.ndarray, sp.Matrix]) -> None:
         """Set angular momentum operators in the given basis."""
@@ -118,11 +123,8 @@ class OrbitronicHamiltonianSystem:
             U_dagger = U.H if self.symbolic else U.conj().T
             Ls = [U_dagger @ L @ U for L in (Lx, Ly, Lz)]
 
-            if self.verbose:
-                print("\nBasis transformation applied. Transformed angular momentum operators:")
-                for i, L in enumerate(Ls):
-                    name = f"L{['x','y','z'][i]}"
-                    print_symbolic_matrix(L, name=name) if self.symbolic else print(f"{name} =\n", L)
+            log.info("Basis transformation applied.")
+            log.debug("Transformed L matrices:\nLx=%r\nLy=%r\nLz=%r", *Ls)
 
         self.L = Ls if self.symbolic else np.stack(Ls, axis=0)
 
@@ -144,9 +146,7 @@ class OrbitronicHamiltonianSystem:
         exchange_term = self.J * dot_ML
         potential = orbital_term + exchange_term
 
-        if self.verbose:
-            print("\nComputed potential energy matrix:")
-            print_symbolic_matrix(potential, name="V(k)") if self.symbolic else print(potential)
+        log.debug("Potential energy matrix successfully computed. %r", potential)
 
         return potential
 
@@ -157,10 +157,7 @@ class OrbitronicHamiltonianSystem:
         potential = self.get_potential(momentum)
         H = kinetic + potential
 
-        if self.verbose:
-            print("\nComputed total Hamiltonian:")
-            print_symbolic_matrix(H, name="H(k)") if self.symbolic else print(H)
-
+        log.debug("Total Hamiltonian successfully computed.")
         return H
 
     def get_symbolic_hamiltonian(self) -> sp.Matrix:
@@ -171,3 +168,7 @@ class OrbitronicHamiltonianSystem:
         kx, ky, kz = sp.symbols("k_x k_y k_z", real=True)
         momentum = [kx, ky, kz]
         return self.get_hamiltonian(momentum)
+    
+    @staticmethod
+    def _is_symbolic(val):
+        return isinstance(val, sp.Basic)
