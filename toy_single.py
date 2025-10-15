@@ -1,7 +1,6 @@
 from greens import GreensFunctionCalculator
 import numpy as np
 import sympy as sp
-from utils import sanitize_vector
 from ambiguity import AggregatedAmbiguityError
 import sys
 #sys.tracebacklimit = 0

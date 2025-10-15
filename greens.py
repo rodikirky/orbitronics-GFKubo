@@ -810,9 +810,7 @@ class GreensFunctionCalculator:
                 severity="error"  # unresolved unless a choice or predicate resolves it
             )
             return s
-
-        
-    
+   
     def _eigenvalues_greens_inverse(self, momentum: ArrayLike | None = None) -> tuple[MatrixLike, list[sp.Expr] | np.ndarray, MatrixLike]:
 
         """
