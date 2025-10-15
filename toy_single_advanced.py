@@ -17,35 +17,37 @@ logging.basicConfig(level=logging.INFO,
 logging.captureWarnings(True) # optional: route warnings -> logging
 log = logging.getLogger(__name__)
 
-################################################################
-# Single-channel toy model in symbolic mode
-################################################################
+########################################################################
+# Single-channel toy model in symbolic mode with non-constant potential
+########################################################################
 
 # Define symbolic parameters
 momentum, omega = sp.symbols("k omega", real=True)
 eta = sp.symbols("eta", real=True, positive=True)
+L = sp.symbols("L", complex=True)
 ferro_m = sp.symbols(
     "m_F", real=True, positive=True)
-ferro_potential = sp.symbols(
-    "V_F", real=True)
+ferro_coeff = sp.symbols(
+    "gamma_F", real=True)
 nonferro_m = sp.symbols(
     "m_N", real=True, positive=True)
-nonferro_potential = sp.symbols(
-    "V_N", real=True)
+nonferro_coeff = sp.symbols(
+    "gamma_N", real=True)
 
 # Define the Hamiltonian for a single-channel toy model
 def ferro_hamiltonian(k):
+    def ferro_potential(k):
+        return ferro_coeff * k*L
     if type(k)==sp.Matrix:
         k = k[0]
-    H_ferro = (k**2) / (2 * ferro_m) + ferro_potential
+    H_ferro = (k**2) / (2 * ferro_m) + ferro_potential(k)
     return H_ferro
 def nonferro_hamiltonian(k):
-    H_nonferro = (k**2) / (2 * nonferro_m) + nonferro_potential
+    def nonferro_potential(k):
+        return nonferro_coeff * k*L
+    H_nonferro = (k**2) / (2 * nonferro_m) + nonferro_potential(k)
     return H_nonferro
 
-# ────────────────────────────────
-# 1) Translation-invariant systems
-# ────────────────────────────────
 # Ferromagnetic side
 ferro_greenscalculator = GreensFunctionCalculator(
     hamiltonian=ferro_hamiltonian,
@@ -56,24 +58,25 @@ ferro_greenscalculator = GreensFunctionCalculator(
     retarded=True,
     dimension=1)
 
-#ferro_G_k = ferro_greenscalculator.compute_kspace_greens_function(momentum) # correct
-#roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0) # correct
+#ferro_G_k = ferro_greenscalculator.compute_kspace_greens_function(momentum) 
+#roots = ferro_greenscalculator.compute_roots_greens_inverse(solve_for=0)
 
 z, z_prime = sp.symbols("z z'", real=True)
-physical_preds = [
-        sp.Q.positive(omega - ferro_potential),   # choose propagating regime in F
-        sp.Q.positive(ferro_m),                   # already true by symbol, fine to include
-        sp.Q.positive(eta)
-    ]
 show_ambiguity_errors = False
 try:
-    ferro_G_r = ferro_greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime, z_diff_sign=1, case_assumptions=physical_preds)
+    predicates = [sp.Q.positive(ferro_m), sp.Q.positive(eta)]
+    choices = {('im_sign_root', 'lambda_0.root_1.sqrt_form'): False, 
+               ('im_sign_root', 'lambda_0.root_0.sqrt_form'): True,
+               ('im_sign_root', 'lambda_0.root_1.im_sign'): 1,
+                ('im_sign_root', 'lambda_0.root_0.im_sign'): 1
+               }
+    ferro_G_r = ferro_greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime, z_diff_sign=1, full_matrix=True, case_assumptions={"predicates": predicates, "choices": choices})
+    print(ferro_G_r)
 except AggregatedAmbiguityError as e:
     if show_ambiguity_errors:
         raise
-
     ambiguities = e.items
-    decisions = [True, True] # must be one of the options given or "preds" to use the predicate
+    decisions = [False, False] # must be one of the options given or "preds" to use the predicate
     assert len(ambiguities) == len(decisions), "Must provide decision for each ambiguity."
 
     predicates: List[sp.Basic] = []
@@ -92,20 +95,5 @@ except AggregatedAmbiguityError as e:
         choices[key] = decisions[i]
     
     case = {"predicates": predicates, "choices": choices}
-    case["predicates"] = physical_preds + case["predicates"] # merge your own predicates
     log.info("Rerunning real-space calculation with additional assumptions.")
     ferro_G_r = ferro_greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime, z_diff_sign=1, case_assumptions=case)
-
-
-# Non-ferromagnetic side
-#nonferro_greenscalculator = GreensFunctionCalculator(
-#    hamiltonian=nonferro_hamiltonian,
-#    identity=sp.Matrix([1]),
-#    symbolic=True,
-#    energy_level=omega,
-#    broadening=eta,
-#    retarded=True,
-#    dimension=1,
-#    verbose=True)
-
-#nonferro_greenscalculator.info() # correct

@@ -349,7 +349,7 @@ class GreensFunctionCalculator:
                     try:
                         # polynomial attempt
                         # let SymPy pick the domain
-                        log.debug("Trying to solve polynomially.")
+                        log.debug("Trying to solve for roots polynomially.")
                         poly = sp.Poly(lambda_i, k_var)
                         if poly.total_degree() > 0:
                             # dict {root: multiplicity}
@@ -806,7 +806,7 @@ class GreensFunctionCalculator:
                 predicate=None,  
                 options=[+1, -1, 0],
                 consequence="Cannot decide sign(Im(k0)).",
-                data={"k0": k0},
+                data={"k0": k0, "Im(k0)": sp.im(k0), "attempted methods": ["direct", "sqrt_pattern", "taylor_eta"]},
                 severity="error"  # unresolved unless a choice or predicate resolves it
             )
             return s
