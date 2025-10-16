@@ -2,6 +2,7 @@ import numpy as np
 import sympy as sp
 from sympy.matrices.common import NonInvertibleMatrixError
 from typing import Union, Optional
+from pathlib import Path
 
 
 def invert_matrix(matrix: Union[np.ndarray, sp.Matrix],
@@ -50,7 +51,6 @@ def hermitian_conjugate(matrix: Union[np.ndarray, sp.Matrix],
     else:
         return matrix.conj().T
 
-
 def is_unitary(U: Union[np.ndarray, sp.Matrix],
                symbolic: bool = False,
                atol: float = 1e-10) -> bool:
@@ -62,7 +62,6 @@ def is_unitary(U: Union[np.ndarray, sp.Matrix],
     U_eval = np.array(U.evalf()).astype(
         np.complex128) if symbolic else np.array(U)
     return np.allclose(U_eval.conj().T @ U_eval, np.eye(U_eval.shape[0]), atol=atol)
-
 
 def is_scalar(x) -> bool:
     '''
@@ -136,7 +135,6 @@ def sanitize_matrix(
             f"H(k) must be {expected_size}x{expected_size}, got {mat.shape}.")
     return mat
 
-
 def get_identity(size: int,
                  symbolic: bool) -> Union[np.ndarray, sp.Matrix]:
     """
@@ -144,7 +142,6 @@ def get_identity(size: int,
     current mode: symbolic or numeric.
     """
     return sp.eye(size) if symbolic else np.eye(size)
-
 
 def print_symbolic_matrix(matrix: sp.Matrix,
                           name: str = "Matrix") -> None:
@@ -154,3 +151,29 @@ def print_symbolic_matrix(matrix: sp.Matrix,
     """
     print(f"\n{name}:")
     sp.pprint(matrix, use_unicode=True)
+
+def save_result(result, path, symbolic: bool):
+    """
+    Minimal saver:
+      - symbolic=True  -> write <path>.tex and <path>.pretty.txt
+      - symbolic=False -> write <path>.npy
+    Returns a list of written file paths.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    if symbolic:
+        if not isinstance(result, sp.MatrixBase):
+            result = sp.Matrix(result)
+        tex_path = path.with_suffix(".tex")
+        pretty_path = path.with_suffix(".pretty.txt")
+        tex_path.write_text(sp.latex(result))
+        pretty_path.write_text(sp.pretty(result))
+        written += [tex_path, pretty_path]
+    else:
+        arr = np.asarray(result)
+        npy_path = path.with_suffix(".npy")
+        np.save(npy_path, arr)
+        written.append(npy_path)
+    return written
