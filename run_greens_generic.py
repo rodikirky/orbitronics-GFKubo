@@ -1,9 +1,19 @@
 from __future__ import annotations
 import argparse, json
 from pathlib import Path
+from runner_utils import setup_logging, validated_k, load_builder
+
+# Project imports
 from greens import GreensFunctionCalculator
 from utils import save_result
-from runner_utils import setup_logging, load_builder
+
+# numeric defaults
+DEFAULT_M = [0.0, 0.0, 1.0] # Magnetisation vector
+DEFAULT_OMEGA = 1.5
+DEFAULT_ETA = 1e-3
+DEFAULT_MASS = 2.0
+DEFAULT_GAMMA = 0.4 
+DEFAULT_J = 0.0
 
 def cmd_ginv(args):
     build = load_builder(args.builder)
@@ -11,9 +21,9 @@ def cmd_ginv(args):
     H, I, d = build(symbolic=args.symbolic, **kw)
     calc = GreensFunctionCalculator(H, I, args.symbolic, args.omega, args.eta,
                                     retarded=not args.advanced, dimension=d)
-    k = None if args.symbolic else args.k
+    k = None if args.symbolic else validated_k(args.k, d)
     if not args.symbolic and k is None:
-        raise ValueError("Numeric mode requires --k (one for d=1; else d values).")
+        raise ValueError("Numeric mode requires --k.")
     Ginv = calc.get_greens_inverse(k)
     Path(args.out).mkdir(parents=True, exist_ok=True)
     save_result(Ginv, Path(args.out)/f"{args.name}_Ginv", symbolic=args.symbolic)
@@ -24,7 +34,7 @@ def cmd_gk(args):
     H, I, d = build(symbolic=args.symbolic, **kw)
     calc = GreensFunctionCalculator(H, I, args.symbolic, args.omega, args.eta,
                                     retarded=not args.advanced, dimension=d)
-    k = None if args.symbolic else args.k
+    k = None if args.symbolic else validated_k(args.k, d)
     if not args.symbolic and k is None:
         raise ValueError("Numeric mode requires --k.")
     G = calc.compute_kspace_greens_function(k)
@@ -53,8 +63,10 @@ def main():
 
     def add_common(sp):
         sp.add_argument("--symbolic", action="store_true")
-        sp.add_argument("--omega", type=float, default=1.5)
-        sp.add_argument("--eta", type=float, default=1e-3)
+        sp.add_argument("--omega", type=float, default=DEFAULT_OMEGA)
+        sp.add_argument("--eta", type=float, default=DEFAULT_ETA)
+        sp3.add_argument("--omega-sym", type=float, default=None)
+        sp3.add_argument("--eta-sym", type=float, default=None)
         sp.add_argument("--advanced", action="store_true",
                         help="Use advanced (−iη) instead of retarded (+iη).")
         sp.add_argument("--out", default="results/greens_runs")
@@ -73,16 +85,10 @@ def main():
     sp2.set_defaults(func=cmd_gk)
 
     sp3 = sub.add_parser("gz-sym", help="Symbolically compute 1D G(z, z';ω)")
-    sp3.add_argument("--builder", required=True)
-    sp3.add_argument("--builder-kwargs", default="")
-    sp3.add_argument("--omega-sym", type=float, default=None)
-    sp3.add_argument("--eta-sym", type=float, default=None)
-    sp3.add_argument("--advanced", action="store_true")
+    add_common(sp3)
     sp3.add_argument("--z", type=float, required=True)
     sp3.add_argument("--zprime", type=float, required=True)
     sp3.add_argument("--full-matrix", action="store_true")
-    sp3.add_argument("--out", default="results/greens_runs")
-    sp3.add_argument("--name", default="run")
     sp3.set_defaults(func=cmd_gz_sym)
 
     args = p.parse_args()

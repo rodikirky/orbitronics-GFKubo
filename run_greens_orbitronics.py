@@ -1,19 +1,8 @@
-"""
-Blueprint runner for GreensFunctionCalculator
-
-Etiquette:
-- Library code (greens.py, system.py, utils.py) stays side-effect free.
-- Runner owns: logging config, output directory, filenames, saving.
-
-Usage examples:
-  python run_greens.py --symbolic --out results/greens_3d --stamp
-  python run_greens.py --symbolic --out results/tmp --name test_run --log DEBUG
-"""
 from __future__ import annotations
 import argparse
 from pathlib import Path
 import sympy as sp
-from runner_utils import setup_logging
+from runner_utils import setup_logging, validated_k
 
 # Project imports
 from greens import GreensFunctionCalculator
@@ -21,7 +10,7 @@ from system import OrbitronicHamiltonianSystem
 from utils import sanitize_vector, save_result
 
 # numeric defaults
-DEFAULT_M = [0.0, 0.0, 1.0]
+DEFAULT_M = [0.0, 0.0, 1.0] # Magnetisation vector
 DEFAULT_OMEGA = 1.5
 DEFAULT_ETA = 1e-3
 DEFAULT_MASS = 2.0
@@ -29,7 +18,7 @@ DEFAULT_GAMMA = 0.4
 DEFAULT_J = 0.0
 
 # symbolic defaults
-SYM_M = list(sp.symbols("M_1 M_2 M_3", real=True))
+SYM_M = list(sp.symbols("M_1 M_2 M_3", real=True)) # Magnetisation vector
 SYM_OMEGA = sp.symbols("omega", real=True)
 SYM_ETA = sp.symbols("eta", real=True, positive=True)
 SYM_MASS = sp.symbols("m", real=True, positive=True)
@@ -60,9 +49,9 @@ def build_calc_orbitronics(symbolic: bool, omega=None, eta=None, m=None, gamma=N
 
 def cmd_ginv(args):
     calc = build_calc_orbitronics(args.symbolic, args.omega, args.eta, args.m, args.gamma, args.J, args.M)
-    k = None if args.symbolic else args.k 
+    k = None if args.symbolic else validated_k(args.k, 3)
     if not args.symbolic and k is None:
-        raise ValueError("Numeric mode requires --k (one for d=1; else d values).")
+        raise ValueError("Numeric mode requires --k (one for d=1; else d values).")#
     if args.symbolic and args.k is not None:
         raise ValueError("Symbolic mode does not accept --k; uses default k symbols.")
     Ginv = calc.get_greens_inverse(k)
@@ -71,9 +60,9 @@ def cmd_ginv(args):
 
 def cmd_gk(args):
     calc = build_calc_orbitronics(args.symbolic, args.omega, args.eta, args.m, args.gamma, args.J, args.M)
-    k = None if args.symbolic else args.k 
+    k = None if args.symbolic else validated_k(args.k, 3)
     if not args.symbolic and k is None:
-        raise ValueError("Numeric mode requires --k (one for d=1; else d values).")
+        raise ValueError("Numeric mode requires --k (one for d=1; else d values).")#
     if args.symbolic and args.k is not None:
         raise ValueError("Symbolic mode does not accept --k; uses default k symbols.")
     Gk = calc.compute_kspace_greens_function(k)
@@ -81,7 +70,7 @@ def cmd_gk(args):
     save_result(Gk, Path(args.out)/f"{args.name}_G_k", symbolic=args.symbolic)
 
 def cmd_gz_sym(args):
-    calc = build_calc_orbitronics(args.symbolic, args.omega, args.eta, args.m, args.gamma, args.J, args.M)
+    calc = build_calc_orbitronics(True, args.omega, args.eta, args.m, args.gamma, args.J, args.M)
     Gr = calc.compute_rspace_greens_symbolic_1d(args.z, args.zprime, full_matrix=args.full_matrix)
     Path(args.out).mkdir(parents=True, exist_ok=True)
     save_result(Gr, Path(args.out)/f"{args.name}_G_r", symbolic=True)

@@ -6,9 +6,6 @@ from zoneinfo import ZoneInfo  # Python 3.9+
 from typing import Callable, Tuple, Any
 import importlib
 
-# ----------------------------
-# Logging
-# ----------------------------
 def setup_logging(level: str, out_dir: Path, run_name: str) -> Path:
     """
     Configure logging to write into out_dir with a timestamped filename, e.g. run_20251018-2312.log.
@@ -30,9 +27,6 @@ def setup_logging(level: str, out_dir: Path, run_name: str) -> Path:
 
     return log_path
 
-# ----------------------------
-# Dynamic builder loader    
-# ----------------------------
 def load_builder(builder_spec: str) -> Callable[..., Tuple[Callable[[Any], Any], Any, int]]:
     mod_name, func_name = builder_spec.split(":")
     mod = importlib.import_module(mod_name)
@@ -40,3 +34,9 @@ def load_builder(builder_spec: str) -> Callable[..., Tuple[Callable[[Any], Any],
     if not callable(fn):
         raise TypeError(f"Builder {builder_spec!r} is not callable.")
     return fn
+
+def validated_k(k_list, d):
+    if k_list is None: return None
+    if len(k_list) != d:
+        raise SystemExit(f"--k expects {d} values (got {len(k_list)}).")
+    return k_list
