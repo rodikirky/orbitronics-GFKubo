@@ -322,114 +322,36 @@ class GreensFunctionCalculator:
         k = sp.Matrix(self.k_symbols)  # e.g., Matrix([k_x, k_y, k_z]) or fewer
 
         with sp.assuming(*predicates):
-            # Compute eigenvalues of the inverse Green's function
-            _, eigenvalues, _ = self._eigenvalues_greens_inverse(k)
-            log.debug("Eigenvalues successfully computed.")
+            # Compute the determinant of G_inv(k)
+            G_inv = self.get_greens_inverse(k)
+            log.debug("G⁻¹(k) constructed for root solving.")
+            det_G_inv = self._determinant(G_inv)
+            log.debug("det(G⁻¹(k)) successfully computed.")
 
-            root_solutions = []
-            non_empty_flag = 0  # count how many eigenvalues have non-empty solution sets
-            for i, lambda_i in enumerate(eigenvalues):
-                # simplify for readability and solving
-                lambda_i = sp.simplify(sp.together(lambda_i))
-                # a) Short circuit if λ_i has no dependence on k_var
-                if not lambda_i.has(k_var):
-                    #log.debug("Free symbols of λ_%d: %s", i, lambda_i.free_symbols)
-                    # check for all-together vanishing eigenvalue
-                    if lambda_i.equals(0) or lambda_i.is_zero:
-                        log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
-                        raise ValueError(
-                            f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
-                    # λ_i is constant in the variable to solve for
-                    warnings.warn(
-                        f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
-                    # Return empty solution set
-                    root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
-                    continue
-
-                # b) Solve for roots of lambda_i = 0
-                try:
-                    try:
-                        # polynomial attempt
-                        # let SymPy pick the domain
-                        log.debug("Trying to solve for roots polynomially.")
-                        poly = sp.Poly(lambda_i, k_var)
-                        if poly.total_degree() > 0:
-                            # dict {root: multiplicity}
-                            roots_dict = sp.roots(poly.as_expr(), k_var)
-                            # expand multiplicities into a list, to match your previous FiniteSet(*roots)
-                            roots_list = []
-                            for r, m in roots_dict.items():
-                                roots_list.extend([sp.simplify(r)] * int(m))
-                            solset = sp.FiniteSet(*roots_list)
-                        else:
-                            log.debug("Polynomial degree is zero.")
-                            log.debug("Short circuit should have caught this case earlier.")
-                            # check for all-together vanishing eigenvalue
-                            expr = poly.as_expr()
-                            if expr.has(k_var):
-                                # strange edge case that needs to be resolved if encountered
-                                choice_key = ("roots", f"lambda_{i}.poly_constant_yet_not")
-                                if choices[choice_key] != "constant":
-                                    self._add_amb(
-                                        where="roots",
-                                        what=f"lambda_{i}.poly_constant_yet_not",
-                                        predicate=None,                     # no simple predicate; depends on k0
-                                        options=["constant", "not-constant"],
-                                        consequence=f"Cannot decide if λ_{i}({k_var})=0 has roots.",
-                                        data={"k_var": k_var, "lambda_i": lambda_i, "poly_expr": expr},
-                                        severity="error"  # unresolved unless a choice or predicate resolves it
-                                    )
-                                    root_solutions.append(
-                                    (f"lambda_{i}=0", f"Edge case: polynomial has {k_var} but degree is zero. Solver failed."))
-                                    continue
-                                log.debug(f"{choice_key[1]} ambiguity resolved by choice provided.")
-                                
-                            # check for all-together vanishing eigenvalue
-                            if expr.equals(0) or expr.is_zero:
-                                log.error("Eigenvalue λ_%d is identically zero; G⁻¹(k) singular.", i)
-                                raise ValueError(
-                                    f"Eigenvalue λ_{i} is identically zero for all {k_var}, indicating a singular G⁻¹(k).")
-                            # λ_i is constant in the variable to solve for
-                            warnings.warn(
-                                f"Eigenvalue lambda_{i} is constant in k_var; returning empty solution set.", stacklevel=2)
-                            # Return empty solution set
-                            root_solutions.append((f"lambda_{i}=0", sp.EmptySet))
-                            continue
-                    except sp.PolynomialError:
-                        # general solve for non-polynomial case
-                        log.debug("Polynomial solver failed. Trying general solver with sp.solveset.")
-                        warnings.warn(f"Eigenvalue λ_{i} is not polynomial in {k_var}")
-                        solset = sp.solveset(
-                            sp.Eq(lambda_i, 0), k_var, domain=sp.S.Complexes)
-                        if isinstance(solset, sp.ConditionSet):
-                            choice_key = ("roots", f"lambda_{i}.condition_set")
-                            if choices[choice_key] != "ConditionSet":
-                                self._add_amb(
-                                    where="roots",
-                                    what=f"lambda_{i}.condition_set",
-                                    predicate=None,   # no simple predicate; depends on k0
-                                    options=["ConditionSet", "FiniteSet"],
-                                    consequence=f"Cannot solve λ_{i}(k) = 0. Returning ConditionSet.",
-                                    data={"k_var": k_var, "lambda_i": lambda_i},
-                                    severity="warn"  # try to resolve with a predicate or assumption
-                                )
-                                log.debug("Choose 'ConditionSet' for choices[%s] or provide predicate to solve %s=0", choice_key, lambda_i)
-                    root_solutions.append((f"lambda_{i}=0", solset))
-                except Exception as e:
-                    # fallback if something really unexpected happens
-                    log.error("Error during solving for lambda_%d: %s", i, e)
-                    root_solutions.append(
-                        (f"lambda_{i}=0", f"Error during solving."))
-                non_empty_flag = 1
-
-            if non_empty_flag == 0:
-                warnings.warn(
-                    "None of the eigenvalues depend on k_var; G⁻¹(k) has no roots.", stacklevel=2)
-            log.info("Root solving completed.")
-            log.debug("Roots of G⁻¹(k) %s", root_solutions)
-            self._finalize_ambiguities_or_raise(context="root solving")
-
-        return root_solutions
+            if not det_G_inv.has(k_var):
+                # constant in the solve variable -> either identically zero (singular) or no roots
+                if sp.simplify(det_G_inv).equals(0):
+                    raise ValueError(f"det G⁻¹ is identically zero; G⁻¹ is singular for all {k_var}.")
+                warnings.warn(f"det(G⁻¹) is constant and non-zero in {k_var}; no roots to solve for, returning empty set.")
+                return [("det(G^{-1})=0", sp.EmptySet)]
+            
+            # Solve as a polynomial in k_var
+            try:
+                poly = sp.Poly(det_G_inv, k_var, domain=sp.EX)  # EX is robust with symbols/parameters
+                if poly.total_degree() <= 0:
+                    warnings.warn(f"det(G⁻¹) polynomial degree is zero in {k_var}, but det_G_inv.has(k_var) is {det_G_inv.has(k_var)}. Earler warning should have caught this.")
+                    return [("det(G^{-1})=0", sp.EmptySet)]
+                roots_dict = sp.roots(poly.as_expr(), k_var)  # {root: multiplicity}
+                # Unique roots as a set (good for “where are the poles?”)
+                solset = sp.FiniteSet(*[sp.simplify(r) for r in roots_dict.keys()])
+                log.info("Roots of det(G⁻¹)=0 successfully computed polynomially.")
+                # Return both: set for locations, dict for multiplicities
+                return [("det(G^{-1})=0", solset)], roots_dict
+            except sp.PolynomialError:
+                # Very rare here, but keep a safe fallback
+                warnings.warn(f"det(G⁻¹) is not polynomial in {k_var}; using general solver sp.solveset().")
+                solset = sp.solveset(sp.Eq(sp.simplify(det_G_inv), 0), k_var, domain=sp.S.Complexes)
+            return [("det(G^{-1})=0", solset)]
     # endregion
 
     # region Real-space Fourier transform
@@ -677,6 +599,29 @@ class GreensFunctionCalculator:
             if z < z_prime:  return -1
             return 0
         return None
+    
+    def determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
+        """
+        Compute the determinant of a matrix, symbolic or numeric.
+
+        Parameters
+        ----------
+        matrix : MatrixLike
+            The input matrix (sympy.Matrix or np.ndarray).
+
+        Returns
+        -------
+        det : sympy.Basic or complex
+            The determinant of the matrix.
+        """
+        A = sanitize_matrix(matrix, symbolic=self.symbolic)
+        if not self.symbolic:
+            det_A = np.linalg.det(A)
+            log.debug("Determinant computed numerically with NumPy.")
+            return det_A
+        det_A = A.berkowitz_det()
+        log.debug("Determinant computed symbolically with Berkowitz algorithm")
+        return det_A
     
     def _im_sign_of_root(self, k0, i, n, predicates=None, choices=None):
         """
