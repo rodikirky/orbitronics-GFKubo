@@ -337,14 +337,35 @@ class GreensFunctionCalculator:
             
             # Solve as a polynomial in k_var
             try:
+                log.debug("Attempting polynomial root solving in %s.", k_var)
                 poly = sp.Poly(det_G_inv, k_var, domain=sp.EX)  # EX is robust with symbols/parameters
                 if poly.total_degree() <= 0:
                     warnings.warn(f"det(G⁻¹) polynomial degree is zero in {k_var}, but det_G_inv.has(k_var) is {det_G_inv.has(k_var)}. Earler warning should have caught this.")
                     return [("det(G^{-1})=0", sp.EmptySet)]
+                deg = sp.degree(poly, k_var)
+                log.debug("det(G⁻¹) is polynomial of degree %d in %s.", deg, k_var)
+                reduced = self._try_even_reduction(poly, k_var)
+                # Even-power reduction case:
+                if reduced is not None:
+                    reduced_poly, k_squared = reduced
+                    log.debug("Polynomial reduction successful: substituting k²=%s.", k_squared)
+                    # cubic (usually): solve exactly & quickly
+                    t_roots = sp.roots(reduced_poly.as_expr(), k_squared)  # dict {t_i: mult}
+                    k_roots = {}
+                    for ti, m in t_roots.items():
+                        # branch lift: ±sqrt(t_i)
+                        k_roots[sp.sqrt(ti)] = m
+                        k_roots[-sp.sqrt(ti)] = m
+                    log.info("Roots of det(G⁻¹)=0 successfully computed with even-power reduction.")
+                    # Unique roots as a set (good for “where are the poles?”)
+                    solset = sp.FiniteSet(*[sp.simplify(r) for r in k_roots.keys()])
+                    return [("det(G^{-1})=0", solset)], k_roots
+                # General polynomial case
+                log.debug("No even-power reduction possible; solving as general polynomial.")
                 roots_dict = sp.roots(poly.as_expr(), k_var)  # {root: multiplicity}
+                log.info("Roots of det(G⁻¹)=0 successfully computed polynomially.")
                 # Unique roots as a set (good for “where are the poles?”)
                 solset = sp.FiniteSet(*[sp.simplify(r) for r in roots_dict.keys()])
-                log.info("Roots of det(G⁻¹)=0 successfully computed polynomially.")
                 # Return both: set for locations, dict for multiplicities
                 return [("det(G^{-1})=0", solset)], roots_dict
             except sp.PolynomialError:
@@ -616,12 +637,30 @@ class GreensFunctionCalculator:
         """
         A = sanitize_matrix(matrix, symbolic=self.symbolic, expected_size=self.N)
         if not self.symbolic:
-            det_A = np.linalg.det(A)
+            det_A = np.linalg.slogdet(A)
             log.debug("Determinant computed numerically with NumPy.")
             return det_A
         det_A = A.berkowitz_det()
         log.debug("Determinant computed symbolically with Berkowitz algorithm")
         return det_A
+    
+    def _try_even_reduction(self, det, k):
+        # det is det(G^{-1})(k); k is the solve variable
+        # Check evenness: D(-k) == D(k)
+        if sp.simplify(sp.together(det.subs(k, -k) - det)) != 0:
+            return None  # not even
+
+        # Build P(t) with t = k**2
+        poly_k = sp.Poly(sp.together(det), k, domain=sp.EX)
+        coeffs = {}
+        for (exp,), c in poly_k.terms(): # (e,c) pairs: exponent tuple (with one entry), coefficient
+            if exp % 2 != 0:
+                return None  # odd power sneaked in; bail out
+            coeffs[exp // 2] = coeffs.get(exp // 2, 0) + c
+        t = sp.Symbol("t", complex=True)  # auxilliary variable; t = k**2
+        poly_t = sp.Poly(sum(c * t**e for e, c in coeffs.items()), t, domain=sp.EX)
+        return poly_t, t
+
     
     def _im_sign_of_root(self, k0, i, n, predicates=None, choices=None):
         """

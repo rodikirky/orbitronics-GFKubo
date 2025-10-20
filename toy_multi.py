@@ -15,10 +15,10 @@ log = logging.getLogger(__name__)
 ################################################################
 symbolic_mode = True
 mass = sp.symbols("m", real=True, positive=True)
-orbital_texture_coupling = sp.symbols("gamma", real=True)
-#orbital_texture_coupling = 0
-exchange_interaction_coupling = sp.symbols("J", real=True)
-#exchange_interaction_coupling = 0
+#orbital_texture_coupling = sp.symbols("gamma", real=True)
+orbital_texture_coupling = 0
+#exchange_interaction_coupling = sp.symbols("J", real=True)
+exchange_interaction_coupling = 0 # with J=0 determinant is an even polynomial in k
 mag1, mag2, mag3 = sp.symbols("M_1 M_2 M_3", real=True)
 magnetisation = sanitize_vector([mag1, mag2, mag3], symbolic=symbolic_mode)
 
