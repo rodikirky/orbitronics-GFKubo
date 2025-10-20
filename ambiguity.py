@@ -1,4 +1,5 @@
-'''Ambiguity ledger (what it is, how to use it)
+'''
+Ambiguity ledger (what it is, how to use it)
 --------------------------------------------
 The greens function calculator records places where a symbolic decision could not be made
 unambiguously (e.g., undecidable sign(Im k₀), non-polynomial λᵢ(k), ill-conditioned

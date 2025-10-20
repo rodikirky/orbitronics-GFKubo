@@ -176,7 +176,6 @@ class GreensFunctionCalculator:
         except Exception:
             return f"{self.__class__.__name__}(unprintable; id=0x{id(self):x})"
 
-
     def __str__(self):
         try:
             mode = "symbolic" if self.symbolic else "numeric"
