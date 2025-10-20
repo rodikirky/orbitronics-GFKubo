@@ -600,7 +600,7 @@ class GreensFunctionCalculator:
             return 0
         return None
     
-    def determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
+    def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
         """
         Compute the determinant of a matrix, symbolic or numeric.
 
@@ -614,7 +614,7 @@ class GreensFunctionCalculator:
         det : sympy.Basic or complex
             The determinant of the matrix.
         """
-        A = sanitize_matrix(matrix, symbolic=self.symbolic)
+        A = sanitize_matrix(matrix, symbolic=self.symbolic, expected_size=self.N)
         if not self.symbolic:
             det_A = np.linalg.det(A)
             log.debug("Determinant computed numerically with NumPy.")

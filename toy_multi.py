@@ -45,8 +45,8 @@ greenscalculator = GreensFunctionCalculator(
     retarded=True,
     dimension=3)
 
-G_inv = greenscalculator.get_greens_inverse()
-print("G^{-1}(k,ω):", G_inv)
+#G_inv = greenscalculator.get_greens_inverse()
+#print("G^{-1}(k,ω):", G_inv)
 #print_symbolic_matrix(G_inv, name="G^{-1}(k,ω)")
 #print("Type of G_inv before sanitization:", type(G_inv))
 #G_k = G_inv.inv(method='LU') if symbolic_mode else np.linalg.inv(G_inv) # the method choice was the game changer
@@ -54,7 +54,7 @@ print("G^{-1}(k,ω):", G_inv)
 #G_k = invert_matrix(G_inv, symbolic=symbolic_mode)
 #G_k = greenscalculator.compute_kspace_greens_function() 
 #print_symbolic_matrix(G_k, name="G(k,ω)")
-#roots = greenscalculator.compute_roots_greens_inverse(solve_for=0) 
-#print("Roots of det(G^{-1}(k,ω))=0:", roots)
+roots = greenscalculator.compute_roots_greens_inverse(solve_for=0) 
+print("Roots of det(G^{-1}(k,ω))=0:", roots[0])
 
 
