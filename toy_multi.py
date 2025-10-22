@@ -37,12 +37,12 @@ omega = sp.symbols("omega", real=True)
 eta = sp.symbols("eta", real=True, positive=True)
 
 vals = {
-    omega: 0.8, 
-    orbital_texture_coupling: 0.3, 
-    exchange_interaction_coupling: 1.0,
-    mag1: 0.0, mag2: 0.0, mag3: 3.0,
+    #omega: 0.8, 
+    #orbital_texture_coupling: 0.3, 
+    #exchange_interaction_coupling: 1.0,
+    mag1: 0.0, mag2: 0.0, #mag3: 3.0,
     mass: 1.0, 
-    eta: 1e-6,      # small positive η for retarded GF
+    #eta: 1e-6,      # small positive η for retarded GF
     #k_x: 0.1, k_y: -0.2
 }
 
@@ -69,14 +69,9 @@ G_inv = G_inv.subs(vals)
 #print_symbolic_matrix(G_k, name="G(k,ω)")
 roots = greenscalculator.compute_roots_greens_inverse(vals=vals) 
 print("Number of roots of det(G^{-1}(k,ω))=0:", len(roots))
-roots_unique = list(roots.keys())
-root_1 = roots_unique[0]
-k_var = greenscalculator.k_symbols[-1]
+#roots_unique = list(roots.keys())
+#root_1 = roots_unique[0]
+#k_var = greenscalculator.k_symbols[-1]
 det = sp.cancel(greenscalculator._determinant(G_inv))
-zero_det = sp.together(det.subs(k_var, root_1))
-#Test:
-try:
-    print("Root is zero of det:", zero_det.equals(0))
-except RuntimeError:
-    raise
+print("Free symbols in det(G_inv):", det.free_symbols)
 

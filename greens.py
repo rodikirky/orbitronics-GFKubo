@@ -30,6 +30,7 @@ from utils import invert_matrix, sanitize_vector, sanitize_matrix
 import warnings
 from ambiguity import AmbiguityLedger, AggregatedAmbiguityError
 import logging
+from func_timeout import func_timeout, FunctionTimedOut
 
 __all__ = ["GreensFunctionCalculator"]
 # endregion
@@ -42,6 +43,8 @@ ArrayLike  = Union[Sequence[float], np.ndarray, sp.Matrix]
 
 NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
+
+TIMEOUT_GATE = 12.0 # seconds
 # endregion
 
 # region GreensFunctionCalculator (public class)
@@ -273,8 +276,7 @@ class GreensFunctionCalculator:
         else:
             assert adjugate*G_inv == det
         return adjugate, det
-                    
-
+            
     def compute_kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
         """
         Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
@@ -389,66 +391,49 @@ class GreensFunctionCalculator:
             else:
                 warnings.warn("No numeric substitutions values provided; solving symbolically with parameters may freeze or fail.", stacklevel=2)
             
-            # Solve as a polynomial in k_var
             try:
+                # 1) Set up as polynomial in k_var
                 log.debug("Attempting polynomial root solving in %s.", k_var)
                 poly = sp.Poly(det_G_inv, k_var, domain=sp.EX)  # EX is robust with symbols/parameters
+            except sp.PolynomialError:
+                # 2) Short-circuit for non-polynomial determinants
+                raise TypeError(f"Expected det(G_inv) to be a polynomial in {k_var}. Solver cannot handle other types.")
+            else: 
+                # Continue wth 1), since no PolynomialError was raised.
                 if poly.total_degree() <= 0:
                     warnings.warn(f"det(G⁻¹) polynomial degree is zero in {k_var}, but det_G_inv.has(k_var) is {det_G_inv.has(k_var)}. Earler warning should have caught this.")
-                    return [("det(G^{-1})=0", sp.EmptySet)]
+                    return {}
                 deg = sp.degree(poly, k_var)
                 log.debug("det(G⁻¹) is polynomial of degree %d in %s.", deg, k_var)
                 reduced = self._try_even_reduction(poly, k_var)
-                # Even-power reduction case:
+                # a) Even-power reduction case:
                 if reduced is not None:
                     reduced_poly, k_squared = reduced
-                    log.debug("Polynomial reduction successful: substituting k²=%s.", k_squared)
+                    log.debug("Polynomial reduction successful: substituting %s²=%s. Solving for roots in new variable", k_var, k_squared)
                     # cubic (usually): solve exactly & quickly
                     reduced_poly = reduced_poly.as_poly(k_squared)
-                    reduced_constants, reduced_factors = sp.factor_list(reduced_poly.as_expr())
-                    log.debug("Factorization of reduced polynomial successful. There are %d factors.", len(reduced_factors))
-                    t_roots = {}
+                    try:
+                        t_roots = func_timeout(TIMEOUT_GATE, self._factorize_poly_and_find_roots, args = (reduced_poly, k_squared))
+                    except FunctionTimedOut:
+                        raise RuntimeError(f"Sympy factoring and root solving exceeded {TIMEOUT_GATE} seconds.")
                     k_roots = {}
-                    for i,(r,_) in enumerate(reduced_factors):
-                        log.debug("Degree of reduced factor #%d is %d.", i, sp.degree(r, k_squared))
-                        ti_roots = sp.roots(r.as_expr(), k_squared)  # dict {t_i: mult}
-                        log.debug("Roots of reduced factor #%d were successfully computed.", i)
-                        t_roots.update(ti_roots)
                     for ti, m in t_roots.items():
                         # branch lift: ±sqrt(t_i)
                         k_roots[sp.sqrt(ti)] = m
                         k_roots[-sp.sqrt(ti)] = m
                     log.info("All roots of det(G⁻¹)=0 successfully computed with even-power reduction.")
+                    log.debug("There are %d unique roots.", len(k_roots))
                     return k_roots
-                    # Unique roots as a set (good for “where are the poles?”)
-                    solset = sp.FiniteSet(*[sp.simplify(r) for r in k_roots.keys()])
-                    return [("det(G^{-1})=0", solset)], k_roots
-                # General polynomial case
-                log.debug(f"reduced = {reduced}")
+                # b) General polynomial case
                 log.debug("No even-power reduction possible; solving as general polynomial.")
-                #constants, factors = sp.factor_list(poly.as_expr())
-                #log.debug("Factorization of reduced polynomial successful. There are %d factors.", len(factors))
-                #k_roots = {}
-                #for i,(r,_) in enumerate(factors):
-                #    log.debug("Degree of factor #%d is %d.", i, sp.degree(r, k_var))
-                #    ki_roots = sp.roots(r.as_expr(), k_var)  # dict {root: mult}
-                #    log.debug("Roots of factor #%d were successfully computed.", i)
-                #    k_roots.update(ki_roots)
-                log.debug("Solving full polynomial %s=0 for %s.", poly.as_expr(), k_var)
-                roots_dict = sp.roots(poly.as_expr(), k_var)  # {root: multiplicity}
+                try:
+                    k_roots = func_timeout(TIMEOUT_GATE, self._factorize_poly_and_find_roots, args = (poly, k_var))
+                except FunctionTimedOut:
+                    raise RuntimeError(f"Sympy factoring and root solving exceeded {TIMEOUT_GATE} seconds.")
                 log.info("All roots of det(G⁻¹)=0 successfully computed polynomially.")
-                #return k_roots
-                return roots_dict
-                # Unique roots as a set (good for “where are the poles?”)
-                solset = sp.FiniteSet(*[sp.simplify(r) for r in roots_dict.keys()])
-                # Return both: set for locations, dict for multiplicities
-                return [("det(G^{-1})=0", solset)], roots_dict
-            except sp.PolynomialError:
-                ## Very rare here, but keep a safe fallback
-                #warnings.warn(f"Polynomial solver for {k_var} such that det(G⁻¹)=0 failed; trying general solver sp.solveset().")
-                #solset = sp.solveset(sp.Eq(sp.simplify(det_G_inv), 0), k_var, domain=sp.S.Complexes)
-            #return [("det(G^{-1})=0", solset)]
-                raise
+                log.debug("There are %d unique roots.", len(k_roots))
+                return k_roots
+            
     # endregion
 
     # region Real-space Fourier transform
@@ -736,8 +721,18 @@ class GreensFunctionCalculator:
         t = sp.Symbol("t", complex=True)  # auxilliary variable; t = k**2
         poly_t = sp.Poly(sum(c * t**e for e, c in coeffs.items()), t, domain=sp.EX)
         return poly_t, t
-
     
+    def _factorize_poly_and_find_roots(self, poly, variable):
+        constants, factors = sp.factor_list(poly.as_expr())
+        log.debug("Factorization of polynomial successful. There are %d factors.", len(factors))
+        roots = {}
+        for i,(r,_) in enumerate(factors):
+            log.debug("Degree of factor #%d is %d.", i, sp.degree(r, variable))
+            roots_i = sp.roots(r.as_expr(), variable)  # dict {t_i: mult}
+            log.debug("Roots of reduced factor #%d were successfully computed.", i)
+            roots.update(roots_i)
+        return roots
+
     def _im_sign_of_root(self, k0, i, n, predicates=None, choices=None):
         """
         Try to determine sign(Im(k0)) robustly.
