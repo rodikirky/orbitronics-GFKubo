@@ -211,7 +211,7 @@ class GreensFunctionCalculator:
     # region k-space Green’s function
     def get_greens_inverse(self, momentum: ArrayLike | None = None) -> MatrixLike:
         self._reset_ambiguities()
-        log.debug("Computing G(k) with: momentum=%s (symbolic=%s)", momentum, self.symbolic)
+        log.debug("Computing G^{-1}(k) with: momentum=%s (symbolic=%s)", momentum, self.symbolic)
 
         if momentum is None:
             if self.symbolic:
@@ -232,6 +232,48 @@ class GreensFunctionCalculator:
                  imaginary_unit) * self.I - H_k
         log.debug("Formed G^{-1}(k) = (ω %s iη)I - H(k)", "+" if self.q==1 else "-")
         return G_inv
+    
+    def get_required_symbols(self) -> set[sp.Symbol]:
+        """
+        Get the set of SymPy symbols required by the Hamiltonian function.
+        Caller can identify which symbols need to be defined for evaluation of the roots and the real space GF.
+        Usually not needed for k-space GF evaluation.
+
+        Returns
+        -------
+        Set of sp.Symbol
+            Symbols that must be defined for the Hamiltonian to be evaluated.
+            Empty set in numeric mode.
+        """
+        if not self.symbolic:
+            return set()
+        G_inv = self.get_greens_inverse()
+        REQUIRED_SYMBOLS = G_inv.free_symbols - set(self.k_symbols)
+        return REQUIRED_SYMBOLS
+
+    def get_adjugate_greens_inverse_and_det (self, momentum: ArrayLike | None = None):
+        G_inv = self.get_greens_inverse(momentum)
+        det = self._determinant(G_inv)
+        adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
+        # Test for correctness:
+        if self.symbolic:
+            eta_value = INFINITESIMAL
+            det_num = det_num.subs(self.eta, eta_value)
+            other_values = {}
+            for v in list(det_num.free_symbols):
+                other_values[v] = 1
+            det_num = det_num.subs(other_values)
+            values = other_values
+            values[self.eta] = eta_value
+            adjugate_num = adjugate.subs(values)
+            G_inv_num = G_inv.subs(values)
+            det_test = sp.cancel(adjugate_num*G_inv_num)
+            res = det_num - det_test
+            assert res.equals(0), "Adjugate of G_inv ought to equal det(G_inv)*G(k)."
+        else:
+            assert adjugate*G_inv == det
+        return adjugate, det
+                    
 
     def compute_kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
         """
@@ -262,7 +304,7 @@ class GreensFunctionCalculator:
     # endregion
 
     # region Root solving
-    def compute_roots_greens_inverse(self, solve_for: int = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+    def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         """
         Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
@@ -335,6 +377,18 @@ class GreensFunctionCalculator:
                 warnings.warn(f"det(G⁻¹) is constant and non-zero in {k_var}; no roots to solve for, returning empty set.")
                 return [("det(G^{-1})=0", sp.EmptySet)]
             
+            if vals is not None:
+                det_G_inv = det_G_inv.subs(vals)
+                log.debug("Substituted given numeric values into det(G⁻¹): %s", vals)
+                leftover_symbols = det_G_inv.free_symbols - set(self.k_symbols)
+                REQUIRED_SYMBOLS = self.get_required_symbols()
+                if leftover_symbols & REQUIRED_SYMBOLS:
+                    warnings.warn(
+                        f"Insufficient substsitution values provided, det(G⁻¹) still contains unresolved symbols: {leftover_symbols & REQUIRED_SYMBOLS}. This may lead to failure or freezing during solving.", 
+                        stacklevel=2)
+            else:
+                warnings.warn("No numeric substitutions values provided; solving symbolically with parameters may freeze or fail.", stacklevel=2)
+            
             # Solve as a polynomial in k_var
             try:
                 log.debug("Attempting polynomial root solving in %s.", k_var)
@@ -350,29 +404,51 @@ class GreensFunctionCalculator:
                     reduced_poly, k_squared = reduced
                     log.debug("Polynomial reduction successful: substituting k²=%s.", k_squared)
                     # cubic (usually): solve exactly & quickly
-                    t_roots = sp.roots(reduced_poly.as_expr(), k_squared)  # dict {t_i: mult}
+                    reduced_poly = reduced_poly.as_poly(k_squared)
+                    reduced_constants, reduced_factors = sp.factor_list(reduced_poly.as_expr())
+                    log.debug("Factorization of reduced polynomial successful. There are %d factors.", len(reduced_factors))
+                    t_roots = {}
                     k_roots = {}
+                    for i,(r,_) in enumerate(reduced_factors):
+                        log.debug("Degree of reduced factor #%d is %d.", i, sp.degree(r, k_squared))
+                        ti_roots = sp.roots(r.as_expr(), k_squared)  # dict {t_i: mult}
+                        log.debug("Roots of reduced factor #%d were successfully computed.", i)
+                        t_roots.update(ti_roots)
                     for ti, m in t_roots.items():
                         # branch lift: ±sqrt(t_i)
                         k_roots[sp.sqrt(ti)] = m
                         k_roots[-sp.sqrt(ti)] = m
-                    log.info("Roots of det(G⁻¹)=0 successfully computed with even-power reduction.")
+                    log.info("All roots of det(G⁻¹)=0 successfully computed with even-power reduction.")
+                    return k_roots
                     # Unique roots as a set (good for “where are the poles?”)
                     solset = sp.FiniteSet(*[sp.simplify(r) for r in k_roots.keys()])
                     return [("det(G^{-1})=0", solset)], k_roots
                 # General polynomial case
+                log.debug(f"reduced = {reduced}")
                 log.debug("No even-power reduction possible; solving as general polynomial.")
+                #constants, factors = sp.factor_list(poly.as_expr())
+                #log.debug("Factorization of reduced polynomial successful. There are %d factors.", len(factors))
+                #k_roots = {}
+                #for i,(r,_) in enumerate(factors):
+                #    log.debug("Degree of factor #%d is %d.", i, sp.degree(r, k_var))
+                #    ki_roots = sp.roots(r.as_expr(), k_var)  # dict {root: mult}
+                #    log.debug("Roots of factor #%d were successfully computed.", i)
+                #    k_roots.update(ki_roots)
+                log.debug("Solving full polynomial %s=0 for %s.", poly.as_expr(), k_var)
                 roots_dict = sp.roots(poly.as_expr(), k_var)  # {root: multiplicity}
-                log.info("Roots of det(G⁻¹)=0 successfully computed polynomially.")
+                log.info("All roots of det(G⁻¹)=0 successfully computed polynomially.")
+                #return k_roots
+                return roots_dict
                 # Unique roots as a set (good for “where are the poles?”)
                 solset = sp.FiniteSet(*[sp.simplify(r) for r in roots_dict.keys()])
                 # Return both: set for locations, dict for multiplicities
                 return [("det(G^{-1})=0", solset)], roots_dict
             except sp.PolynomialError:
-                # Very rare here, but keep a safe fallback
-                warnings.warn(f"det(G⁻¹) is not polynomial in {k_var}; using general solver sp.solveset().")
-                solset = sp.solveset(sp.Eq(sp.simplify(det_G_inv), 0), k_var, domain=sp.S.Complexes)
-            return [("det(G^{-1})=0", solset)]
+                ## Very rare here, but keep a safe fallback
+                #warnings.warn(f"Polynomial solver for {k_var} such that det(G⁻¹)=0 failed; trying general solver sp.solveset().")
+                #solset = sp.solveset(sp.Eq(sp.simplify(det_G_inv), 0), k_var, domain=sp.S.Complexes)
+            #return [("det(G^{-1})=0", solset)]
+                raise
     # endregion
 
     # region Real-space Fourier transform
