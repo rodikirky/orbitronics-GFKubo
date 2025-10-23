@@ -383,7 +383,7 @@ class GreensFunctionCalculator:
                 det_G_inv = det_G_inv.subs(vals)
                 log.debug("Substituted given numeric values into det(G⁻¹): %s", vals)
                 free_symbols = det_G_inv.free_symbols
-                free_symbols_list = list(free_symbols)
+                free_symbols_list = list(free_symbols) # ordered list of free symbols to be returned with the result
                 leftover_symbols = free_symbols - set(self.k_symbols)
                 REQUIRED_SYMBOLS = self.get_required_symbols()
                 if leftover_symbols & REQUIRED_SYMBOLS:
@@ -392,7 +392,7 @@ class GreensFunctionCalculator:
                         stacklevel=2)
             else:
                 warnings.warn("No numeric substitutions values provided; solving symbolically with parameters may freeze or fail.", stacklevel=2)
-                free_symbols_list = []
+                free_symbols_list = list(det_G_inv.free_symbols)
             try:
                 # 1) Set up as polynomial in k_var
                 log.debug("Attempting polynomial root solving in %s.", k_var)
@@ -445,6 +445,7 @@ class GreensFunctionCalculator:
                                                          z_prime: float | sp.Basic,
                                                          z_diff_sign: int = None,
                                                          full_matrix: bool = False,
+                                                         vals: dict = None,
                                                          case_assumptions: list = None):
         """
         Compute the symbolic 1D real-space Green's function G(z, z′) via the residue theorem.
