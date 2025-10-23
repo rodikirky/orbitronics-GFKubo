@@ -382,7 +382,9 @@ class GreensFunctionCalculator:
             if vals is not None:
                 det_G_inv = det_G_inv.subs(vals)
                 log.debug("Substituted given numeric values into det(G⁻¹): %s", vals)
-                leftover_symbols = det_G_inv.free_symbols - set(self.k_symbols)
+                free_symbols = det_G_inv.free_symbols
+                free_symbols_list = list(free_symbols)
+                leftover_symbols = free_symbols - set(self.k_symbols)
                 REQUIRED_SYMBOLS = self.get_required_symbols()
                 if leftover_symbols & REQUIRED_SYMBOLS:
                     warnings.warn(
@@ -390,7 +392,7 @@ class GreensFunctionCalculator:
                         stacklevel=2)
             else:
                 warnings.warn("No numeric substitutions values provided; solving symbolically with parameters may freeze or fail.", stacklevel=2)
-            
+                free_symbols_list = []
             try:
                 # 1) Set up as polynomial in k_var
                 log.debug("Attempting polynomial root solving in %s.", k_var)
@@ -402,7 +404,7 @@ class GreensFunctionCalculator:
                 # Continue wth 1), since no PolynomialError was raised.
                 if poly.total_degree() <= 0:
                     warnings.warn(f"det(G⁻¹) polynomial degree is zero in {k_var}, but det_G_inv.has(k_var) is {det_G_inv.has(k_var)}. Earler warning should have caught this.")
-                    return {}
+                    return {}, free_symbols_list
                 deg = sp.degree(poly, k_var)
                 log.debug("det(G⁻¹) is polynomial of degree %d in %s.", deg, k_var)
                 reduced = self._try_even_reduction(poly, k_var)
@@ -423,7 +425,7 @@ class GreensFunctionCalculator:
                         k_roots[-sp.sqrt(ti)] = m
                     log.info("All roots of det(G⁻¹)=0 successfully computed with even-power reduction.")
                     log.debug("There are %d unique roots.", len(k_roots))
-                    return k_roots
+                    return k_roots, free_symbols_list
                 # b) General polynomial case
                 log.debug("No even-power reduction possible; solving as general polynomial.")
                 try:
@@ -432,7 +434,7 @@ class GreensFunctionCalculator:
                     raise RuntimeError(f"Sympy factoring and root solving exceeded {TIMEOUT_GATE} seconds.")
                 log.info("All roots of det(G⁻¹)=0 successfully computed polynomially.")
                 log.debug("There are %d unique roots.", len(k_roots))
-                return k_roots
+                return k_roots, free_symbols_list
             
     # endregion
 
