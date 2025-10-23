@@ -2,8 +2,11 @@ from greens import GreensFunctionCalculator
 from system import OrbitronicHamiltonianSystem
 import numpy as np
 import sympy as sp
-from utils import sanitize_vector, print_symbolic_matrix, invert_matrix, sanitize_matrix
+from utils import sanitize_vector, to_jsonable
 #from ambiguity import AggregatedAmbiguityError
+from pathlib import Path
+import json
+import pickle
 import logging
 logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -75,3 +78,10 @@ print("Number of roots of det(G^{-1}(k,ω))=0:", len(roots))
 det = sp.cancel(greenscalculator._determinant(G_inv))
 print("Free symbols in det(G_inv):", det.free_symbols)
 
+# Saving results
+out = Path("results")
+out.mkdir(exist_ok=True)
+with (out/"toy_multi_roots.json").open("w", encoding="utf-8") as f:
+    json.dump(to_jsonable(roots), f, indent=2, ensure_ascii=False)
+with (out/"toy_multi_det.pkl").open("wb") as f:
+    pickle.dump(det, f, protocol=pickle.HIGHEST_PROTOCOL)

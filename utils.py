@@ -177,3 +177,16 @@ def save_result(result, path, symbolic: bool):
         np.save(npy_path, arr)
         written.append(npy_path)
     return written
+
+def to_jsonable(o):
+    if isinstance(o, sp.Basic):
+        return sp.srepr(o)                     # unambiguous constructor form
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, (list, tuple, set)):
+        return [to_jsonable(x) for x in o]
+    if isinstance(o, dict):
+        # convert keys to strings (use srepr for SymPy keys), recurse on values
+        return { (sp.srepr(k) if isinstance(k, sp.Basic) else str(k)) : to_jsonable(v)
+                 for k, v in o.items() }
+    return o
