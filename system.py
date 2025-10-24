@@ -172,3 +172,20 @@ class OrbitronicHamiltonianSystem:
     @staticmethod
     def _is_symbolic(val):
         return isinstance(val, sp.Basic)
+
+class OrbitronicInterface:
+    def __init__(self,
+                 # effective mass for the material
+                 mass: Union[float, sp.Basic],
+                 # kL coupling
+                 orbital_texture_coupling: Union[float, sp.Basic],
+                 alpha,
+                 beta,
+                 crystal_field,
+                 # default leads to canonical L matrices
+                 basis: Optional[Union[np.ndarray, sp.Matrix]] = None,
+                 # defaults to numeric mode
+                 symbolic: bool = False):
+        self.m_int = mass
+        self.gamma_int = orbital_texture_coupling
+        # rest to follow
