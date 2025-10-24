@@ -435,7 +435,6 @@ class GreensFunctionCalculator:
                 log.info("All roots of det(G⁻¹)=0 successfully computed polynomially.")
                 log.debug("There are %d unique roots.", len(k_roots))
                 return k_roots, free_symbols_list
-            
     # endregion
 
     # region Real-space Fourier transform
@@ -540,26 +539,26 @@ class GreensFunctionCalculator:
         G_z_diag = []
         has_contributions = False # track if any pole contributed
 
-        for i, lambda_i in enumerate(eigenvalues):
-            contrib, contributed_any = self._residue_sum_for_lambda(
-                i, lambda_i, z, z_prime, k_dir, z_diff_sign, predicates, choices)
-            has_contributions = has_contributions or contributed_any
-            assert contrib == 0 if not contributed_any else True, "If no poles contributed, the contribution must be zero."
-            G_z_diag.append(contrib)
+        #for i, lambda_i in enumerate(eigenvalues):
+        #    contrib, contributed_any = self._residue_sum_for_lambda(
+        #        i, lambda_i, z, z_prime, k_dir, z_diff_sign, predicates, choices)
+        #    has_contributions = has_contributions or contributed_any
+        #    assert contrib == 0 if not contributed_any else True, "If no poles contributed, the contribution must be zero."
+        #    G_z_diag.append(contrib)
 
-            log.debug("Processed eigenvalue λ_%d=%s.", i, lambda_i)
-            log.debug("Diagonal entry to G(z,z') #%d: %s", i, contrib)
+        #    log.debug("Processed eigenvalue λ_%d=%s.", i, lambda_i)
+        #    log.debug("Diagonal entry to G(z,z') #%d: %s", i, contrib)
         self._finalize_ambiguities_or_raise(context="root solving")   
 
-        if not has_contributions:
-            warnings.warn(
-                "No poles passed the sign check; returning zero Green's function.", stacklevel=2)
-            assert sp.diag(*G_z_diag) == sp.zeros(self.N), "Expected zeros on the diagonal if no poles contributed."
+        #if not has_contributions:
+        #    warnings.warn(
+        #        "No poles passed the sign check; returning zero Green's function.", stacklevel=2)
+        #    assert sp.diag(*G_z_diag) == sp.zeros(self.N), "Expected zeros on the diagonal if no poles contributed."
 
-        elif all((val.is_zero is True) for val in G_z_diag):
-            warnings.warn(
-                "Green's function is identically zero: all residue contributions canceled out.", stacklevel=2)
-            assert has_contributions == True, "Expected has_contributions=True if some poles contributed, otherwise earlier warning should have been triggered."
+        #elif all((val.is_zero is True) for val in G_z_diag):
+        #    warnings.warn(
+        #        "Green's function is identically zero: all residue contributions canceled out.", stacklevel=2)
+        #    assert has_contributions == True, "Expected has_contributions=True if some poles contributed, otherwise earlier warning should have been triggered."
 
         G_z = sp.diag(*G_z_diag)
         log.info("1D real-space %s Green's function G(%s,%s) successfully computed.", self.green_type, z, z_prime)
@@ -570,10 +569,10 @@ class GreensFunctionCalculator:
         # Note: Currently returning only diagonal Green's function G(z, z′)
         # Full matrix reconstruction from eigenbasis can be added if needed:
         if full_matrix:
-            G_full = eigenbasis @ G_z @ invert_matrix(
-                eigenbasis, symbolic=True)
+            #G_full = eigenbasis @ G_z @ invert_matrix(
+            #    eigenbasis, symbolic=True)
             log.info("The full Green's function matrix in the original basis is returned.")
-            return G_full
+            #return G_full
             
         log.info("Note: Only diagonal entries are returned by default. Choose full_matrix=True for the full matrix in the original basis.") 
         return G_z

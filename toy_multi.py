@@ -70,20 +70,24 @@ greenscalculator = GreensFunctionCalculator(
 #G_k = invert_matrix(G_inv, symbolic=symbolic_mode)
 #G_k = greenscalculator.compute_kspace_greens_function() 
 #print_symbolic_matrix(G_k, name="G(k,ω)")
-roots, free_symbols = greenscalculator.compute_roots_greens_inverse(vals=vals) 
-print("Number of roots of det(G^{-1}(k,ω))=0:", len(roots))
+#roots, free_symbols = greenscalculator.compute_roots_greens_inverse(vals=vals) 
+#print("Number of roots of det(G^{-1}(k,ω))=0:", len(roots))
 #roots_unique = list(roots.keys())
 #root_1 = roots_unique[0]
 #k_var = greenscalculator.k_symbols[-1]
 #det = sp.cancel(greenscalculator._determinant(G_inv))
-print("Free symbols in det(G_inv):", free_symbols)
+#print("Free symbols in det(G_inv):", free_symbols)
+
+z = sp.symbols("z", real=True)
+z_prime = sp.symbols("z'", real=True)
+G_z = greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z=z, z_prime=z_prime, z_diff_sign=1, full_matrix=False, vals=vals)
 
 # Saving results
 out = Path("results")
 out.mkdir(exist_ok=True)
-with (out/"toy_multi_roots.json").open("w", encoding="utf-8") as f:
-    json.dump(to_jsonable(roots), f, indent=2, ensure_ascii=False)
+#with (out/"toy_multi_roots.json").open("w", encoding="utf-8") as f:
+#    json.dump(to_jsonable(roots), f, indent=2, ensure_ascii=False)
 #with (out/"toy_multi_det.pkl").open("wb") as f:
 #    pickle.dump(det, f, protocol=pickle.HIGHEST_PROTOCOL)
-with (out/"toy_multi_free_symbols.pkl").open("wb") as f:
-    pickle.dump(free_symbols, f, protocol=pickle.HIGHEST_PROTOCOL)
+#with (out/"toy_multi_free_symbols.pkl").open("wb") as f:
+#    pickle.dump(free_symbols, f, protocol=pickle.HIGHEST_PROTOCOL)
