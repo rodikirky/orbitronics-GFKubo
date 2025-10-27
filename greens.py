@@ -25,7 +25,8 @@ __all__ = ["GreensFunctionCalculator"]
 import numpy as np
 import sympy as sp
 from sympy import pprint
-from typing import Callable, Union, Sequence
+from typing import Callable, Union, Sequence, Optional, Tuple
+from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
 import warnings
 from ambiguity import AmbiguityLedger, AggregatedAmbiguityError
@@ -45,6 +46,23 @@ NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 
 TIMEOUT_GATE = 12.0 # seconds
+
+@dataclass(frozen=True)
+class DetPoly:
+    """Container for det(G^{-1}) as a univariate polynomial in the chosen k-component."""
+    var: sp.Symbol                 # e.g., k_z
+    poly: sp.Poly                  # P(var) = det(G^{-1})(k_var)
+    degree: int                    # degree in `var`
+    even: bool                     # True if all exponents of `var` are even
+    u: Optional[sp.Symbol] = None  # if even: u = var**2
+    u_poly: Optional[sp.Poly] = None  # if even: Q(u) with P(var)=Q(var**2)
+    free_params: Tuple[sp.Symbol, ...] = ()  # symbols in P other than `var`
+
+@dataclass(frozen=True)
+class Numerators:
+    var: sp.Symbol
+    matrix: sp.Matrix              # adj(G^{-1})(k_var): entries N_ij(k_var)
+    free_params: Tuple[sp.Symbol, ...] = ()
 # endregion
 
 # region GreensFunctionCalculator (public class)
@@ -212,16 +230,31 @@ class GreensFunctionCalculator:
     # endregion
 
     # region k-space Green’s function
-    def get_greens_inverse(self, momentum: ArrayLike | None = None) -> MatrixLike:
+    def greens_inverse(self, momentum: ArrayLike | None = None) -> MatrixLike:
+        '''
+        Builds the inverse k-space Green's function as G_inv = (ω +- iη)I - H(k).
+        Works in both modes symbolic/numeric. 
+
+        Parameters
+        ----------
+        momentum: ArrayLike or None
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
+
+        Returns
+        -------
+        G^{-1}(k): MatrixLike
+            Matrix of the shape of the Hamiltonian
+            Inverse of the Green's function in momentum space
+        '''
         self._reset_ambiguities()
         log.debug("Computing G^{-1}(k) with: momentum=%s (symbolic=%s)", momentum, self.symbolic)
 
-        if momentum is None:
-            if self.symbolic:
-                momentum = sp.Matrix(self.k_symbols)
-            else:
-                raise ValueError(
-                    "Momentum must be provided in numeric mode (symbolic=False).")
+        if self.symbolic:
+            momentum = sp.Matrix(self.k_symbols)
+        elif momentum is None:
+            raise ValueError(
+                "Momentum must be provided in numeric mode (symbolic=False).")
         k_vec = sanitize_vector(momentum, self.symbolic, expected_dim=self.d) # ensure iterable and correct type and shape
         k_for_H = (k_vec[0] if self.d == 1 else k_vec) # scalar only for H(k), since H expects scalar, if d=1
             
@@ -236,6 +269,90 @@ class GreensFunctionCalculator:
         log.debug("Formed G^{-1}(k) = (ω %s iη)I - H(k)", "+" if self.q==1 else "-")
         return G_inv
     
+    def kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
+        """
+        Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
+        (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
+        Works in both modes symbolic/numeric. But full symbolic expression may be very large and slow to evaluate. 
+
+        Parameters
+        ----------
+        momentum: ArrayLike or None
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
+
+        Returns
+        ---------
+        G(k) as np.ndarray or sp.Matrix
+            Green's function in momentum space
+
+        Raises
+        ------
+        ValueError
+            If called in numeric mode without a specific momentum value.
+        """
+        G_inv = self.get_greens_inverse(momentum) if momentum is not None else self.get_greens_inverse()
+        G_k = invert_matrix(G_inv, symbolic=self.symbolic)
+        log.info("G(k) computed successfully.") 
+        log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")     
+        return G_k
+    
+    def determinant_poly(self, solve_for: int = None, momentum : ArrayLike | None = None):
+        # 1) Build G^{-1}(k) and compute its determinant
+        G_inv = self.greens_inverse(momentum)
+        det = self._determinant(G_inv)
+        if not self.symbolic:
+            warnings.warn("The polynomial of the determinant cannot be constructed in numeric mode (symbolic = False). Returning its value for the given momentum.")
+            return det
+    
+        if solve_for is None:
+            solve_for = self.d - 1  # default to last dimension
+            log.debug("No solve_for input provided. Defaulting to solve_for=%d", solve_for)
+        # validate index
+        if not isinstance(solve_for, int):
+            raise TypeError(
+                f"'solve_for' must be an int in [0, {self.d-1}] (k-dimension index).")
+        if solve_for < 0 or solve_for >= self.d:
+            valid_indices = ", ".join(str(i) for i in range(self.d))
+            raise ValueError(
+                f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
+
+        k_var = self.k_symbols[solve_for]  # variable to solve for
+        log.info("Constructing det(G_inv) as polynomial in variable %s.", k_var)
+        
+        # 2) Convert to a univariate polynomial in 'k_var'
+        det_poly = self._poly_in(var = k_var, expr = det.as_expr())
+
+        # 3) Gather metadata
+        deg = det_poly.degree()
+        even = self._all_even_powers(det_poly)
+        free_params = tuple(sorted(det_poly.free_symbols - {k_var}, key=lambda s: s.sort_key()))
+
+        # 4) If even in k_var, build reduced poly Q(u) with u=k_var^2
+        u_sym = None
+        Q = None
+        if even and deg > 0:
+            u_sym = sp.Symbol(f"{str(k_var)}²", real=True)
+            # Rebuild Q(u) from det_poly(k_var) terms:
+            Q_terms = []
+            for (e,), c in det_poly.terms():
+                # e is guaranteed even here
+                Q_terms.append(c * u_sym**(e // 2)) # exponent halved
+            Q = sp.add(*Q_terms) if Q_terms else 0
+            Q = self._poly_in(u_sym, Q.as_expr())
+
+        # 5) Return the dataclass
+        return DetPoly(
+            var=k_var,
+            poly=det_poly,
+            degree=deg,
+            even=even,
+            u=u_sym,
+            u_poly=Q,
+            free_params=free_params,
+        )
+
+      
     def get_required_symbols(self) -> set[sp.Symbol]:
         """
         Get the set of SymPy symbols required by the Hamiltonian function.
@@ -277,32 +394,7 @@ class GreensFunctionCalculator:
             assert adjugate*G_inv == det
         return adjugate, det
             
-    def compute_kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
-        """
-        Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
-        (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
-
-        Parameters
-        ----------
-        momentum: ArrayLike or None
-            value at which the Hamiltonian is evaluated
-            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
-
-        Returns
-        ---------
-        G(k) as np.ndarray or sp.Matrix
-            Green's function in momentum space
-
-        Raises
-        ------
-        ValueError
-            If called in numeric mode without a specific momentum value.
-        """
-        G_inv = self.get_greens_inverse(momentum) if momentum is not None else self.get_greens_inverse()
-        G_k = invert_matrix(G_inv, symbolic=self.symbolic)
-        log.info("G(k) computed successfully.") 
-        log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")     
-        return G_k
+    
     # endregion
 
     # region Root solving
@@ -423,6 +515,7 @@ class GreensFunctionCalculator:
                         # branch lift: ±sqrt(t_i)
                         k_roots[sp.sqrt(ti)] = m
                         k_roots[-sp.sqrt(ti)] = m
+                        #CAREFUL! IF ti==0, then both are the same and multiplicity needs to be doubled
                     log.info("All roots of det(G⁻¹)=0 successfully computed with even-power reduction.")
                     log.debug("There are %d unique roots.", len(k_roots))
                     return k_roots, free_symbols_list
@@ -684,6 +777,96 @@ class GreensFunctionCalculator:
             return 0
         return None
     
+    @staticmethod
+    def _poly_in(var: sp.Symbol, expr: sp.Expr, *, zero_equiv: bool = True, domain=sp.EX) -> sp.Poly:
+        """
+        Build a *univariate* Poly in `var` from a SymPy expression `expr`.
+
+        - Uses together() to collect fractions, cancels common factors in `var`,
+        and clears any *var-dependent* denominators.
+        - If `zero_equiv=True` (default), when a var-dependent denominator remains,
+        it returns the *numerator after cancellation* so the returned polynomial
+        has the same zero set as `expr` (ignoring poles). This is what you want
+        for root-finding of det(G^{-1})=0.
+        - Raises TypeError if `expr` is not (rational) polynomial in `var` 
+        (e.g., contains sqrt(var), exp(var), Abs(var), non-integer powers).
+
+        Parameters
+        ----------
+        var : sympy.Symbol
+            The solve-for variable (e.g., k_z).
+        expr : sympy.Expr
+            The expression to convert (e.g., det(G^{-1})).
+        zero_equiv : bool, optional
+            If True, clear var-dependent denominators by returning the cancelled
+            numerator so zeros are preserved. If False, require a true polynomial.
+        domain : sympy domain, optional
+            Poly coefficient domain. Use sp.EX to allow parameter-rational coeffs.
+
+        Returns
+        -------
+        sp.Poly
+            Univariate polynomial in `var`.
+
+        Examples
+        --------
+        >>> P = poly_in(kz, detGinv_expr)          # OK if det/den has kz
+        >>> P.degree(), P.gens
+        >>> # If you need a strict polynomial (no denominator clearing):
+        >>> P = poly_in(kz, detGinv_expr, zero_equiv=False)
+        """
+        # Normalize rational structure and cancel common factors
+        expr = sp.cancel(expr)
+        num, den = sp.fraction(expr) 
+
+        # Quick path: try a true polynomial as-is
+        try:
+            P = sp.Poly(sp.expand(expr), var, domain=domain)
+            return P
+        except sp.PolynomialError:
+            pass  # fall through and attempt clearing variable-dependent denominators
+
+        # If denominator has `var`, clear it in a zero-equivalent sense
+        if den.has(var):
+            # Ensure numerator is polynomial in var
+            try:
+                numP = sp.Poly(sp.expand(num), var, domain=domain)
+            except sp.PolynomialError as _:
+                raise TypeError(f"Denomenator of expr depends on {var} and numerator is not polynomial in {var}. Investigate.")
+            # Also try to ensure denominator *as poly in var* to strip any residual gcd
+            try:
+                denP = sp.Poly(sp.expand(den), var, domain=domain)
+                log.debug("Numerator and denominator are both polynomials in %s.", var)
+            except sp.PolynomialError:
+                denP = None
+                log.debug("Numerator is polynomial in %s; denominator depends non-polynomially on %s.", var, var)
+
+            # Cancel any remaining common polynomial factor in var
+            if denP is not None:
+                #cancelling greatest common divisor, in case sp.cancel missed something
+                g = sp.gcd(numP, denP)
+                if g.degree() > 0:
+                    numP = numP.quo(g)
+                    #denP = denP.quo(g)
+
+            if zero_equiv:
+                return sp.Poly(numP.as_expr(), var, domain=domain)
+            else:
+                raise TypeError(
+                    f"Expression is not a true polynomial in {var} "
+                    "(var-dependent denominator present). Set zero_equiv=True to clear it safely for root-finding."
+                )
+
+        # Denominator does not depend on var → coefficients may be rational in params
+        try:
+            return sp.Poly(sp.expand(num/den), var, domain=domain)
+        except sp.PolynomialError:
+            raise
+
+    @staticmethod
+    def _all_even_powers(P: sp.Poly) -> bool:
+        return all(e % 2 == 0 for (e,), _ in P.terms())
+
     def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
         """
         Compute the determinant of a matrix, symbolic or numeric.
@@ -707,6 +890,10 @@ class GreensFunctionCalculator:
         log.debug("Determinant computed symbolically with Berkowitz algorithm")
         return det_A
     
+    
+
+
+
     def _try_even_reduction(self, det, k):
         # det is det(G^{-1})(k); k is the solve variable
         # Check evenness: D(-k) == D(k)
