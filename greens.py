@@ -48,7 +48,7 @@ INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 TIMEOUT_GATE = 12.0 # seconds
 
 @dataclass(frozen=True)
-class DetPoly:
+class Poly:
     """Container for det(G^{-1}) as a univariate polynomial in the chosen k-component."""
     var: sp.Symbol                 # e.g., k_z
     poly: sp.Poly                  # P(var) = det(G^{-1})(k_var)
@@ -57,12 +57,6 @@ class DetPoly:
     u: Optional[sp.Symbol] = None  # if even: u = var**2
     u_poly: Optional[sp.Poly] = None  # if even: Q(u) with P(var)=Q(var**2)
     free_params: Tuple[sp.Symbol, ...] = ()  # symbols in P other than `var`
-
-@dataclass(frozen=True)
-class Numerators:
-    var: sp.Symbol
-    matrix: sp.Matrix              # adj(G^{-1})(k_var): entries N_ij(k_var)
-    free_params: Tuple[sp.Symbol, ...] = ()
 # endregion
 
 # region GreensFunctionCalculator (public class)
@@ -271,7 +265,7 @@ class GreensFunctionCalculator:
     
     def kspace_greens_function(self, momentum: ArrayLike | None = None) -> MatrixLike:
         """
-        Compute the Green's function for a single-particle Hamiltonian in momentum space by inverting
+        Computes the Green's function for a single-particle Hamiltonian in momentum space by inverting
         (omega + q*i*eta - H(k)), where q = ±1 for retarded/advanced GF.
         Works in both modes symbolic/numeric. But full symbolic expression may be very large and slow to evaluate. 
 
@@ -297,16 +291,121 @@ class GreensFunctionCalculator:
         log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")     
         return G_k
     
-    def determinant_poly(self, solve_for: int = None, momentum : ArrayLike | None = None):
+    def adjugate_greens_inverse(self, momentum: ArrayLike | None = None) -> MatrixLike:
+        '''
+        Computes the adjugate of the matrix G_inv.
+
+        Parameters
+        ----------
+        momentum: ArrayLike or None
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
+
+        Returns
+        ---------
+        adj(G_inv(k)): MatrixLike
+            Adjugate in momentum space
+        '''
+        G_inv = self.get_greens_inverse(momentum)
+        det = self._determinant(G_inv)
+        adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
+        return adjugate
+    
+    def denominator_poly(self, A: MatrixLike, i: int, j: int, solve_for: int = None) -> Tuple[sp.Basic, Poly]: 
+        '''
+        Selects a matrix entry according to the indeces provided and checks whether that entry has a denominator that depend in the 
+        variable to solve for 'k_var'.
+        If so, this method returns the matrix entry and the denominator as a polynomial in k_var in form of the Poly dataclass.
+
+        Parameters
+        ----------
+        A: MatrixLike
+            Matrix for entry choice
+            usually the adjugate of G_inv
+        i: int
+            Row index
+        j: int
+            column index
+        solve_for: int or None
+            identifies the variable, for which the polynomial is formed.
+            If None, last dimension is chosen by default.
+
+        Returns
+        -------
+        A_ij: sp.Basic
+            Matrix entry for given indeces
+        Poly: dataclass
+            Denominator as polynomial with metadata
+
+        Raises
+        ------
+        ValueError
+            If called in numeric mode.
+        '''
+        # 1) Select the chosen entry and identify its denominator
+        A_ij = sp.cancel(A[i][j])
+        if not self.symbolic:
+            raise ValueError("Polynomial cannot be constructed in numeric mode (symbolic = False). Returning matrix entry and None.")
+        solve_for = self._clean_solve_for(solve_for, dimension=self.d)
+        k_var = self.k_symbols[solve_for]  # variable to solve for
+        _, den = sp.fraction(A_ij)
+        # Short-cicuit if den does not depend on k_var
+        if not den.has(k_var):
+            log.debug(f"A_{i}{j} does not have {k_var}-dependent denominators, i.e. no additional poles in this matrix entry.")
+            return A_ij, None
+        
+        # 3) Convert den to univariate polynomial in k_var
+        den_poly = self._poly_in(k_var, den.as_expr())
+
+        # 4) Gather metadata
+        deg, even, free_params, u_sym, Q = self._gather_poly_metadata
+        Q_poly = self._poly_in(k_var, Q.as_expr())
+
+        # 5) Return the dataclass
+        den_poly_data = Poly(
+            var=k_var,
+            poly=den_poly,
+            degree=deg,
+            even=even,
+            u=u_sym,
+            u_poly=Q_poly,
+            free_params=free_params,
+        )
+
+        # 6) Return matrix entry and denominator as polynomial in the Poly dataclass
+        return  A_ij, den_poly_data
+    
+    def determinant_poly(self, solve_for: int = None, momentum : ArrayLike | None = None) -> Poly:
+        '''
+        Computed the determinant of G_inv and turns it into a polynomial.
+        Returns the polynomial as a DetPoly object with its degree, evenness, reduced counterpart and so on
+        according to the Poly dataclass.
+
+        Parameters
+        ----------
+        solve_for: int or None
+            identifies the variable, for which the polynomial is formed.
+            If None, last dimension is chosen by default.
+        momentum: ArrayLike or None
+            Only relevant in numeric mode.
+            Symbolic mode defaults to class inherent k_symbols.
+
+        Returns
+        -------
+        Poly: dataclass
+            Determinant as polynomial with metadata
+        
+        Raises
+        ------
+        ValueError
+            If called in numeric mode.
+        '''
         # 1) Build G^{-1}(k) and compute its determinant
         G_inv = self.greens_inverse(momentum)
         det = self._determinant(G_inv)
         if not self.symbolic:
-            warnings.warn("The polynomial of the determinant cannot be constructed in numeric mode (symbolic = False). Returning its value for the given momentum.")
-            return det
-    
+            raise ValueError("The polynomial of the determinant cannot be constructed in numeric mode (symbolic = False). Returning its value for the given momentum.")
         solve_for = self._clean_solve_for(solve_for, dimension = self.d)
-
         k_var = self.k_symbols[solve_for]  # variable to solve for
         log.info("Constructing det(G_inv) as polynomial in variable %s.", k_var)
         
@@ -314,46 +413,24 @@ class GreensFunctionCalculator:
         det_poly = self._poly_in(var = k_var, expr = det.as_expr())
 
         # 3) Gather metadata
-        deg = det_poly.degree()
-        even = self._all_even_powers(det_poly)
-        free_params = tuple(sorted(det_poly.free_symbols - {k_var}, key=lambda s: s.sort_key()))
-
-        # 4) If even in k_var, build reduced poly Q(u) with u=k_var^2
-        u_sym = None
-        Q = None
-        if even and deg > 0:
-            u_sym = sp.Symbol(f"{str(k_var)}²", real=True)
-            # Rebuild Q(u) from det_poly(k_var) terms:
-            Q_terms = []
-            for (e,), c in det_poly.terms():
-                # e is guaranteed even here
-                Q_terms.append(c * u_sym**(e // 2)) # exponent halved
-            Q = sp.add(*Q_terms) if Q_terms else 0
-            Q = self._poly_in(u_sym, Q.as_expr())
+        deg, even, free_params, u_sym, Q = self._gather_poly_metadata
+        Q_poly = self._poly_in(k_var, Q.as_expr())
 
         # 5) Return the dataclass
-        return DetPoly(
+        return Poly(
             var=k_var,
             poly=det_poly,
             degree=deg,
             even=even,
             u=u_sym,
-            u_poly=Q,
+            u_poly=Q_poly,
             free_params=free_params,
         )
-
-    def adjugate_numerators_poly(self, solve_for: int = None, momentum: ArrayLike | None = None): 
-        G_inv = self.get_greens_inverse(momentum)
-        det = self._determinant(G_inv)
-        adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
-        if not self.symbolic:
-            warnings.warn("The polynomial of the adjugate entries cannot be constructed in numeric mode (symbolic = False). Returning full matrix for the given momentum.")
-            return adjugate
-        
-        
-    def get_required_symbols(self) -> set[sp.Symbol]:
+    
+    def required_parameters(self, expr: sp.Basic | Poly | sp.Poly | sp.Expr | None = None, solve_for: int = None) -> set[sp.Symbol]:
         """
-        Get the set of SymPy symbols required by the Hamiltonian function.
+        Get the set of SymPy symbols that need to be numerically evaluated.
+        This includes all symbols present in the given expression aside from the variable to solve for: 'k_var'
         Caller can identify which symbols need to be defined for evaluation of the roots and the real space GF.
         Usually not needed for k-space GF evaluation.
 
@@ -364,10 +441,13 @@ class GreensFunctionCalculator:
             Empty set in numeric mode.
         """
         if not self.symbolic:
+            warnings.warn("There are no symbols in numeric mode. Enable symbolic = True.")
             return set()
-        G_inv = self.get_greens_inverse()
-        REQUIRED_SYMBOLS = G_inv.free_symbols - set(self.k_symbols)
-        return REQUIRED_SYMBOLS
+        solve_for = self._clean_solve_for(solve_for, dimension = self.d)
+        expr = self.get_greens_inverse() if expr is None else expr
+        k_var = self.k_symbols[solve_for]
+        params = expr.free_symbols - set(k_var)
+        return params
 
     def get_adjugate_greens_inverse_and_det (self, momentum: ArrayLike | None = None):
         G_inv = self.get_greens_inverse(momentum)
@@ -875,10 +955,27 @@ class GreensFunctionCalculator:
             return sp.Poly(sp.expand(num/den), var, domain=domain)
         except sp.PolynomialError:
             raise
-
+    
     @staticmethod
-    def _all_even_powers(P: sp.Poly) -> bool:
-        return all(e % 2 == 0 for (e,), _ in P.terms())
+    def _gather_poly_metadata(poly: sp.Poly, var: sp.Symbol):
+        def all_even_powers(P: sp.Poly) -> bool:
+            return all(e % 2 == 0 for (e,), _ in P.terms())
+        deg = poly.degree()
+        even = all_even_powers(poly)
+        free_params = tuple(sorted(poly.free_symbols - {var}, key=lambda s: s.sort_key()))
+
+        # 4) If even in k_var, build reduced poly Q(u) with u=k_var^2
+        u_sym = None
+        Q = None
+        if even and deg > 0:
+            u_sym = sp.Symbol(f"{str(var)}²", real=True)
+            # Rebuild Q(u) from det_poly(k_var) terms:
+            Q_terms = []
+            for (e,), c in poly.terms():
+                # e is guaranteed even here
+                Q_terms.append(c * u_sym**(e // 2)) # exponent halved
+            Q = sp.add(*Q_terms) if Q_terms else 0
+        return deg, even, free_params, u_sym, Q
 
     def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
         """
