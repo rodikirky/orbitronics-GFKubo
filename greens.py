@@ -24,7 +24,7 @@ __all__ = ["GreensFunctionCalculator"]
 """
 import numpy as np
 import sympy as sp
-from sympy import pprint
+from sympy import pprint, PolynomialError
 from typing import Callable, Union, Sequence, Optional, Tuple
 from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
@@ -59,7 +59,6 @@ class Poly:
     free_params: Tuple[sp.Symbol, ...] = ()  # symbols in P other than `var`
 # endregion
 
-# region GreensFunctionCalculator (public class)
 class GreensFunctionCalculator:
     # region Construction & dunder methods
     def __init__(self,
@@ -311,11 +310,12 @@ class GreensFunctionCalculator:
         adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
         return adjugate
     
-    def denominator_poly(self, A: MatrixLike, i: int, j: int, solve_for: int = None) -> Tuple[sp.Basic, Poly]: 
+    def numerator_denominator_poly(self, A: MatrixLike, i: int, j: int, solve_for: int = None) -> Tuple[Poly, Poly]: 
         '''
         Selects a matrix entry according to the indeces provided and checks whether that entry has a denominator that depend in the 
         variable to solve for 'k_var'.
-        If so, this method returns the matrix entry and the denominator as a polynomial in k_var in form of the Poly dataclass.
+        If so, this method returns the numerator and the denominator of the matrix element as polynomials in k_var
+        in form of the Poly dataclass.
 
         Parameters
         ----------
@@ -332,9 +332,9 @@ class GreensFunctionCalculator:
 
         Returns
         -------
-        A_ij: sp.Basic
+        num_poly: Poly dataclass
             Matrix entry for given indeces
-        Poly: dataclass
+        den_poly: Poly dataclass
             Denominator as polynomial with metadata
 
         Raises
@@ -348,32 +348,46 @@ class GreensFunctionCalculator:
             raise ValueError("Polynomial cannot be constructed in numeric mode (symbolic = False). Returning matrix entry and None.")
         solve_for = self._clean_solve_for(solve_for, dimension=self.d)
         k_var = self.k_symbols[solve_for]  # variable to solve for
-        _, den = sp.fraction(A_ij)
+        num, den = sp.fraction(A_ij)
+        
+        # 3) Convert num, den to univariate polynomials in k_var
+        num_poly = self._poly_in(k_var, num.as_expr())
+        log.debug("Numerator of A_%d%d successfully polynomialized.", i, j)
         # Short-cicuit if den does not depend on k_var
         if not den.has(k_var):
-            log.debug(f"A_{i}{j} does not have {k_var}-dependent denominators, i.e. no additional poles in this matrix entry.")
-            return A_ij, None
-        
-        # 3) Convert den to univariate polynomial in k_var
+            log.debug(f"A_{i}{j} does not have a {k_var}-dependent denominator, i.e. no additional poles in this matrix entry.")
+            return num_poly, None
         den_poly = self._poly_in(k_var, den.as_expr())
+        log.debug("Denominator of A_%d%d successfully polynomialized.", i, j)
 
         # 4) Gather metadata
-        deg, even, free_params, u_sym, Q = self._gather_poly_metadata
-        Q_poly = self._poly_in(k_var, Q.as_expr())
+        num_deg, num_even, num_free_params, num_u_sym, num_Q = self._gather_poly_metadata(num_poly, k_var)
+        den_deg, den_even, den_free_params, den_u_sym, den_Q = self._gather_poly_metadata(den_poly, k_var)
+        num_Q_poly = self._poly_in(k_var, num_Q.as_expr()) if num_Q is not None else num_Q
+        den_Q_poly = self._poly_in(k_var, den_Q.as_expr()) if den_Q is not None else den_Q
 
         # 5) Return the dataclass
+        num_poly_data = Poly(
+            var=k_var,
+            poly=num_poly,
+            degree=num_deg,
+            even=num_even,
+            u=num_u_sym,
+            u_poly=num_Q_poly,
+            free_params=num_free_params,
+        )
         den_poly_data = Poly(
             var=k_var,
             poly=den_poly,
-            degree=deg,
-            even=even,
-            u=u_sym,
-            u_poly=Q_poly,
-            free_params=free_params,
+            degree=den_deg,
+            even=den_even,
+            u=den_u_sym,
+            u_poly=den_Q_poly,
+            free_params=den_free_params,
         )
 
         # 6) Return matrix entry and denominator as polynomial in the Poly dataclass
-        return  A_ij, den_poly_data
+        return  num_poly_data, den_poly_data
     
     def determinant_poly(self, solve_for: int = None, momentum : ArrayLike | None = None) -> Poly:
         '''
@@ -414,7 +428,7 @@ class GreensFunctionCalculator:
 
         # 3) Gather metadata
         deg, even, free_params, u_sym, Q = self._gather_poly_metadata
-        Q_poly = self._poly_in(k_var, Q.as_expr())
+        Q_poly = self._poly_in(k_var, Q.as_expr()) if Q is not None else Q
 
         # 5) Return the dataclass
         return Poly(
@@ -448,31 +462,6 @@ class GreensFunctionCalculator:
         k_var = self.k_symbols[solve_for]
         params = expr.free_symbols - set(k_var)
         return params
-
-    def get_adjugate_greens_inverse_and_det (self, momentum: ArrayLike | None = None):
-        G_inv = self.get_greens_inverse(momentum)
-        det = self._determinant(G_inv)
-        adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
-        # Test for correctness:
-        if self.symbolic:
-            eta_value = INFINITESIMAL
-            det_num = det_num.subs(self.eta, eta_value)
-            other_values = {}
-            for v in list(det_num.free_symbols):
-                other_values[v] = 1
-            det_num = det_num.subs(other_values)
-            values = other_values
-            values[self.eta] = eta_value
-            adjugate_num = adjugate.subs(values)
-            G_inv_num = G_inv.subs(values)
-            det_test = sp.cancel(adjugate_num*G_inv_num)
-            res = det_num - det_test
-            assert res.equals(0), "Adjugate of G_inv ought to equal det(G_inv)*G(k)."
-        else:
-            assert adjugate*G_inv == det
-        return adjugate, det
-            
-    
     # endregion
 
     # region Root solving
@@ -567,7 +556,7 @@ class GreensFunctionCalculator:
                 # 1) Set up as polynomial in k_var
                 log.debug("Attempting polynomial root solving in %s.", k_var)
                 poly = sp.Poly(det_G_inv, k_var, domain=sp.EX)  # EX is robust with symbols/parameters
-            except sp.PolynomialError:
+            except PolynomialError:
                 # 2) Short-circuit for non-polynomial determinants
                 raise TypeError(f"Expected det(G_inv) to be a polynomial in {k_var}. Solver cannot handle other types.")
             else: 
@@ -924,8 +913,8 @@ class GreensFunctionCalculator:
             # Ensure numerator is polynomial in var
             try:
                 numP = sp.Poly(sp.expand(num), var, domain=domain)
-            except sp.PolynomialError as _:
-                raise TypeError(f"Denomenator of expr depends on {var} and numerator is not polynomial in {var}. Investigate.")
+            except PolynomialError as _:
+                raise ValueError(f"Denomenator of expr depends on {var} and numerator is not polynomial in {var}. Investigate.")
             # Also try to ensure denominator *as poly in var* to strip any residual gcd
             try:
                 denP = sp.Poly(sp.expand(den), var, domain=domain)
@@ -975,6 +964,9 @@ class GreensFunctionCalculator:
                 # e is guaranteed even here
                 Q_terms.append(c * u_sym**(e // 2)) # exponent halved
             Q = sp.add(*Q_terms) if Q_terms else 0
+        else:
+            u_sym = None
+            Q = None
         return deg, even, free_params, u_sym, Q
 
     def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
@@ -1422,5 +1414,3 @@ class GreensFunctionCalculator:
 
         return contrib, contributed_any
     # endregion
-
-# endregion
