@@ -305,17 +305,7 @@ class GreensFunctionCalculator:
             warnings.warn("The polynomial of the determinant cannot be constructed in numeric mode (symbolic = False). Returning its value for the given momentum.")
             return det
     
-        if solve_for is None:
-            solve_for = self.d - 1  # default to last dimension
-            log.debug("No solve_for input provided. Defaulting to solve_for=%d", solve_for)
-        # validate index
-        if not isinstance(solve_for, int):
-            raise TypeError(
-                f"'solve_for' must be an int in [0, {self.d-1}] (k-dimension index).")
-        if solve_for < 0 or solve_for >= self.d:
-            valid_indices = ", ".join(str(i) for i in range(self.d))
-            raise ValueError(
-                f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
+        solve_for = self._clean_solve_for(solve_for, dimension = self.d)
 
         k_var = self.k_symbols[solve_for]  # variable to solve for
         log.info("Constructing det(G_inv) as polynomial in variable %s.", k_var)
@@ -352,7 +342,15 @@ class GreensFunctionCalculator:
             free_params=free_params,
         )
 
-      
+    def adjugate_numerators_poly(self, solve_for: int = None, momentum: ArrayLike | None = None): 
+        G_inv = self.get_greens_inverse(momentum)
+        det = self._determinant(G_inv)
+        adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
+        if not self.symbolic:
+            warnings.warn("The polynomial of the adjugate entries cannot be constructed in numeric mode (symbolic = False). Returning full matrix for the given momentum.")
+            return adjugate
+        
+        
     def get_required_symbols(self) -> set[sp.Symbol]:
         """
         Get the set of SymPy symbols required by the Hamiltonian function.
@@ -777,6 +775,21 @@ class GreensFunctionCalculator:
             return 0
         return None
     
+    @staticmethod
+    def _clean_solve_for(solve_for: int | None, dimension: int):
+        d = dimension
+        if solve_for is None:
+            solve_for = d - 1  # default to last dimension
+            log.debug("No solve_for input provided. Defaulting to solve_for=%d", solve_for)
+        # validate index
+        if not isinstance(solve_for, int):
+            raise TypeError(
+                f"'solve_for' must be an int in [0, {d-1}] (k-dimension index).")
+        if solve_for < 0 or solve_for >= d:
+            valid_indices = ", ".join(str(i) for i in range(d))
+            raise ValueError(
+                f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
+        
     @staticmethod
     def _poly_in(var: sp.Symbol, expr: sp.Expr, *, zero_equiv: bool = True, domain=sp.EX) -> sp.Poly:
         """
