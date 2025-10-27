@@ -24,7 +24,7 @@ __all__ = ["GreensFunctionCalculator"]
 """
 import numpy as np
 import sympy as sp
-from sympy import pprint, PolynomialError
+from sympy import pprint, PolynomialError, ConditionSet
 from typing import Callable, Union, Sequence, Optional, Tuple
 from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
@@ -310,7 +310,7 @@ class GreensFunctionCalculator:
         adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
         return adjugate
     
-    def numerator_denominator_poly(self, A: MatrixLike, i: int, j: int, solve_for: int = None) -> Tuple[Poly, Poly]: 
+    def numerator_denominator_poly(self, A: MatrixLike, i: int, j: int, solve_for: int = None) -> tuple[Poly, Poly]: 
         '''
         Selects a matrix entry according to the indeces provided and checks whether that entry has a denominator that depend in the 
         variable to solve for 'k_var'.
@@ -465,6 +465,58 @@ class GreensFunctionCalculator:
     # endregion
 
     # region Root solving
+    def conditional_poles(self, include_adjugate: bool = True, include_determinant: bool = True, solve_for: int = None, case_assumptions: list = None) -> dict[str: ConditionSet]:
+        '''
+        Collects all poles contributing to the residue sum of the Fourier transform as Sympy ConditionSets so as to not freeze the program
+        with heavy simplification of symbolic radicals. The caller can do this separately using these solution sets.
+
+        Parameters
+        -----------
+        include_adjugate: bool or None
+            Flag to include the zeros of the denominators of the entries of adj(G_inv)
+            Defaults to True.
+        include_determinant: bool or None
+            Flag to include the zeros of det(G_inv)
+            Defaults to True.
+
+        Returns
+        --------
+        dict: {str: ConditionSet}
+            str indicated the equation that causes the pole
+            ConditionSet contains all the information to identify the symbolic pole
+
+        Raises
+        ------
+        ValueError
+            In numeric mode, i.e. if symbolic=False.
+        '''
+        if not self.symbolic:
+            raise ValueError("ConditionSets can only be computed in symbolic mode. Enable symbolic=True.")
+        poles = {}
+        if include_adjugate:
+            A = self.adjugate_greens_inverse()
+            rows, cols = A.shape
+            for i in range(rows):
+                for j in range(cols):
+                    # Skip trivially zero entries early
+                    if A[i, j] == 0:
+                        continue
+                    _, den_dc = self.numerator_denominator_poly(A,i,j,solve_for=solve_for)
+                    if den_dc == None:
+                        continue
+                    pole_set = self._conditionset_for_Poly(den_dc)
+                    poles[f"den(A_{i}{j})=0: ", pole_set]
+        if include_determinant:
+            det_dc = self.determinant_poly(solve_for)
+            solve_for = self._clean_solve_for(solve_for, self.d)
+            k_var = self.k_symbols[solve_for]
+            pole_set = self._conditionset_for_Poly(det_dc)
+            poles[f"det(G_inv({k_var}))=0: ", pole_set]
+        return poles
+    
+    def exact_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+        return []
+    
     def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         """
         Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
@@ -968,6 +1020,29 @@ class GreensFunctionCalculator:
             u_sym = None
             Q = None
         return deg, even, free_params, u_sym, Q
+
+    @staticmethod    
+    def _conditionset_for_Poly(poly_dataclass: Poly) -> sp.Set:
+        """
+        Build a ConditionSet for the polynomial == 0 over Complexes.
+        poly_dc is your Poly dataclass (with fields: var, poly, degree, even, u, u_poly, free_params).
+        Handles edge cases: identically 0 or constant != 0.
+        """
+        x = poly_dataclass.var
+        expr = poly_dataclass.poly.as_expr()
+
+        # Quick dependency check
+        if not expr.has(x):
+            # Constant case: either all Complexes (identically zero) or empty
+            if expr.equals(0):
+                warnings.warn("Expression is identically zero. Returning sp.Complexes instead of ConditionSet.")
+                return sp.Complexes   # All complex numbers satisfy 0 == 0
+            else:
+                warnings.warn(f"Expression is constant in {x} and non-zero. Returning EmptySet instead of ConditionSet.")
+                return sp.EmptySet    # No solution to c == 0 with c ≠ 0
+
+        # General case: zero set of expr in Complexes
+        return sp.ConditionSet(x, sp.Eq(expr, 0), sp.Complexes)
 
     def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
         """
