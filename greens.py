@@ -222,7 +222,7 @@ class GreensFunctionCalculator:
             return f"{self.__class__.__name__} (unprintable)"
     # endregion
 
-    # region k-space Green’s function
+    # region k-space
     def greens_inverse(self, momentum: ArrayLike | None = None) -> MatrixLike:
         '''
         Builds the inverse k-space Green's function as G_inv = (ω +- iη)I - H(k).
@@ -440,31 +440,9 @@ class GreensFunctionCalculator:
             u_poly=Q_poly,
             free_params=free_params,
         )
-    
-    def required_parameters(self, expr: sp.Basic | Poly | sp.Poly | sp.Expr | None = None, solve_for: int = None) -> set[sp.Symbol]:
-        """
-        Get the set of SymPy symbols that need to be numerically evaluated.
-        This includes all symbols present in the given expression aside from the variable to solve for: 'k_var'
-        Caller can identify which symbols need to be defined for evaluation of the roots and the real space GF.
-        Usually not needed for k-space GF evaluation.
-
-        Returns
-        -------
-        Set of sp.Symbol
-            Symbols that must be defined for the Hamiltonian to be evaluated.
-            Empty set in numeric mode.
-        """
-        if not self.symbolic:
-            warnings.warn("There are no symbols in numeric mode. Enable symbolic = True.")
-            return set()
-        solve_for = self._clean_solve_for(solve_for, dimension = self.d)
-        expr = self.get_greens_inverse() if expr is None else expr
-        k_var = self.k_symbols[solve_for]
-        params = expr.free_symbols - set(k_var)
-        return params
     # endregion
 
-    # region Root solving
+    # region Poles
     def conditional_poles(self, include_adjugate: bool = True, include_determinant: bool = True, solve_for: int = None, case_assumptions: list = None) -> dict[str: ConditionSet]:
         '''
         Collects all poles contributing to the residue sum of the Fourier transform as Sympy ConditionSets so as to not freeze the program
@@ -514,7 +492,33 @@ class GreensFunctionCalculator:
             poles[f"det(G_inv({k_var}))=0: ", pole_set]
         return poles
     
-    def exact_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+    # After this point, all methods require numerical values for the parameters of polynomial
+    # To that end, this little function provides the caller with all symbolic parameters which need to be evaluated:
+    def required_parameters(self, expr: sp.Basic | Poly | sp.Poly | sp.Expr | None = None, solve_for: int = None) -> tuple[sp.Symbol,...]:
+        """
+        Get the set of SymPy symbols that need to be numerically evaluated.
+        This includes all symbols present in the given expression aside from the variable to solve for: 'k_var'
+        Caller can identify which symbols need to be defined for evaluation of the roots and the real space GF.
+        Usually not needed for k-space GF evaluation.
+
+        Returns
+        -------
+        Tuple of sp.Symbol object
+            Symbols that must be defined for the Hamiltonian to be evaluated.
+            Empty set in numeric mode.
+        """
+        if not self.symbolic:
+            raise ValueError("There are no symbols in numeric mode. Enable symbolic = True.")
+        solve_for = self._clean_solve_for(solve_for, dimension = self.d)
+        expr = self.get_greens_inverse() if expr is None else expr
+        k_var = self.k_symbols[solve_for]
+        params = expr.free_symbols - {k_var}
+        return tuple(sorted(params, key=sp.default_sort_key))
+    
+    def det_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+        return []
+    
+    def denom_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         return []
     
     def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
@@ -649,8 +653,8 @@ class GreensFunctionCalculator:
                 return k_roots, free_symbols_list
     # endregion
 
-    # region Real-space Fourier transform
-    # -- Symbolic 1D real-space transform --
+    # region Real-space
+    # -- Symbolic 1D real-space Fourier transform --
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
                                                          z: float | sp.Basic,
                                                          z_prime: float | sp.Basic,
