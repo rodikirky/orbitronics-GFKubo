@@ -590,13 +590,22 @@ class GreensFunctionCalculator:
         if even:
             Q = det_poly_dc.u_poly
             u = det_poly_dc.u
+            log.debug("Computing roots of the reduced polynomial Q(%s).", u)
             assert Q.has(u), "Q should depend on variable u."
             Q_eval = Q.subs(vals)
             leftover_Q = Q_eval.free_symbols - {u}
             assert not leftover_Q, f"Reduced polynomial should have no unknown parameters after eval. Found: {leftover_Q}"
-            
-            
-        return {}
+            u_roots = self._poly_roots(Q_eval, u)
+            roots = {}
+            for r in u_roots.keys():
+                root_val = sp.sqrt(r)
+                mult = u_roots[r]
+                roots[root_val] = roots.get(root_val,0) + mult
+                roots[-root_val] = roots.get(-root_val,0) + mult
+            return roots
+        log.debug("Computing roots of the polynomial P(%s) without even reduction.", k_var)
+        roots = self._poly_roots(P_eval, k_var)
+        return roots
     
     def denom_poles(self,  i: int, j: int, vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         return []
@@ -1242,7 +1251,7 @@ class GreensFunctionCalculator:
         poly_t = sp.Poly(sum(c * t**e for e, c in coeffs.items()), t, domain=sp.EX)
         return poly_t, t
     
-    def _poly_roots(self, poly: sp.Poly, var) -> dict:
+    def _poly_roots(self, poly: sp.Poly, var: sp.Symbol) -> dict:
         # Garantee univariate polynomial:
         poly = sp.Poly(poly, var, domain="EX")
         if poly.degree() <= 0:
@@ -1276,7 +1285,8 @@ class GreensFunctionCalculator:
         try:
             log.debug("Attempting numerical root solving with poly.nroots().")
             # Numerical root approximation before clustering:
-            roots_list = func_timeout(TIMEOUT_GATE,poly.nroots) # returns list of roots as float objects
+            poly_monic = poly.monic() # divides the polynomial by its leading coefficient
+            roots_list = func_timeout(TIMEOUT_GATE,poly_monic.nroots) # returns list of roots as float objects
             log.debug("Roots successfully approximated numerically; not yet clustered.")
             # Sort deterministically by (Re, Im)
             roots_sorted = sorted(roots_list, key=lambda z: (sp.re(z), sp.im(z)))
