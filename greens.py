@@ -25,7 +25,7 @@ __all__ = ["GreensFunctionCalculator"]
 import numpy as np
 import sympy as sp
 from sympy import pprint, PolynomialError, ConditionSet
-from typing import Callable, Union, Sequence, Optional, Tuple
+from typing import Callable, Union, Sequence, Optional, Tuple, List
 from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
 import warnings
@@ -39,14 +39,6 @@ __all__ = ["GreensFunctionCalculator"]
 # region Constants & module-level config
 log = logging.getLogger(__name__)
 
-MatrixLike = Union[np.ndarray, sp.Matrix]
-ArrayLike  = Union[Sequence[float], np.ndarray, sp.Matrix]
-
-NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
-INFINITESIMAL = 1e-6  # default infinitesimal if none provided
-
-TIMEOUT_GATE = 12.0 # seconds
-
 @dataclass(frozen=True)
 class Poly:
     """Container for det(G^{-1}) as a univariate polynomial in the chosen k-component."""
@@ -57,6 +49,42 @@ class Poly:
     u: Optional[sp.Symbol] = None  # if even: u = var**2
     u_poly: Optional[sp.Poly] = None  # if even: Q(u) with P(var)=Q(var**2)
     free_params: Tuple[sp.Symbol, ...] = ()  # symbols in P other than `var`
+
+@dataclass
+class GenericCompiled:
+    """
+    Backend-compiled numeric callables and metadata for:
+      - P(k, *params)
+      - Pprime(k, *params)
+      - Nij[k, *params] (optional matrix of callables)
+    """
+    var: sp.Symbol
+    params: Tuple[sp.Symbol, ...]
+    backend: str
+    prec: int # precision hint for the "mpmath" backend
+    even: bool
+    P: callable
+    Pprime: callable
+    u: Optional[sp.Symbol] = None
+    Q: Optional[callable] = None
+    Qprime: Optional[callable] = None
+
+    def args_from_dict(self, vals: dict) -> Tuple:
+        """Map a dict of parameter values to the fixed positional order."""
+        try:
+            return tuple(vals[p] for p in self.params)
+        except KeyError as e:
+            missing = [p for p in self.params if p not in vals]
+            raise KeyError(f"Missing parameter values for: {missing}") from e
+
+MatrixLike = Union[np.ndarray, sp.Matrix]
+ArrayLike  = Union[Sequence[float], np.ndarray, sp.Matrix]
+#ExprLike = Union[sp.Expr, sp.Poly, Poly] # for some reason this won't be accepted as a type
+
+NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
+INFINITESIMAL = 1e-6  # default infinitesimal if none provided
+
+TIMEOUT_GATE = 12.0 # seconds
 # endregion
 
 class GreensFunctionCalculator:
@@ -468,6 +496,7 @@ class GreensFunctionCalculator:
         ValueError
             In numeric mode, i.e. if symbolic=False.
         '''
+        log.debug("Starting conditional pole computation.")
         if not self.symbolic:
             raise ValueError("ConditionSets can only be computed in symbolic mode. Enable symbolic=True.")
         poles = {}
@@ -484,12 +513,17 @@ class GreensFunctionCalculator:
                         continue
                     pole_set = self._conditionset_for_Poly(den_dc)
                     poles[f"den(A_{i}{j})=0: ", pole_set]
+                    log.debug(f"Entry A_{i}{j} has a pole.")
         if include_determinant:
             det_dc = self.determinant_poly(solve_for)
             solve_for = self._clean_solve_for(solve_for, self.d)
             k_var = self.k_symbols[solve_for]
             pole_set = self._conditionset_for_Poly(det_dc)
             poles[f"det(G_inv({k_var}))=0: ", pole_set]
+            log.debug("Determinant poles successfully conditioned.")
+        elif not include_adjugate:
+            warnings.warn("No poles were included; returning empty dict. Enable include_adjugate or include_determinant.")
+        log.info("Conditional pole computation complete.")
         return poles
     
     # After this point, all methods require numerical values for the parameters of polynomial
@@ -509,19 +543,44 @@ class GreensFunctionCalculator:
         """
         if not self.symbolic:
             raise ValueError("There are no symbols in numeric mode. Enable symbolic = True.")
-        solve_for = self._clean_solve_for(solve_for, dimension = self.d)
         expr = self.get_greens_inverse() if expr is None else expr
-        k_var = self.k_symbols[solve_for]
-        params = expr.free_symbols - {k_var}
+        if isinstance(expr, Poly):
+            params = expr.free_params
+        else:
+            solve_for = self._clean_solve_for(solve_for, dimension = self.d)
+            k_var = self.k_symbols[solve_for]
+            params = expr.free_symbols - {k_var}
         return tuple(sorted(params, key=sp.default_sort_key))
     
-    def det_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+    def det_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None) -> dict[Union[float, sp.Basic]: Union[int, sp.Basic]]:
+        log.debug("Starting exact pole computation for det(G_inv).")
+        solve_for = self._clean_solve_for(solve_for, dimension=self.d)
+
+        det_poly_dc = self.determinant_poly(solve_for=solve_for) # dc: Poly dataclass
+        k_var = det_poly_dc.var  # variable to solve for
+        log.info("Computing roots of det(G⁻¹(k))=0 for variable %s.", k_var)
+
+        poly = det_poly_dc.poly # polynomial
+        even = det_poly_dc.even
+        free_params = det_poly_dc.free_params
+
+        det_G_inv = det_G_inv.subs(vals)
+        log.debug("Substituted given numeric values into det(G⁻¹): %s", vals)
+        free_symbols = det_G_inv.free_symbols
+        free_symbols_list = list(free_symbols) # ordered list of free symbols to be returned with the result
+        leftover_symbols = free_symbols - set(self.k_symbols)
+        REQUIRED_SYMBOLS = self.get_required_symbols()
+        if leftover_symbols & REQUIRED_SYMBOLS:
+            warnings.warn(
+                f"Insufficient substsitution values provided, det(G⁻¹) still contains unresolved symbols: {leftover_symbols & REQUIRED_SYMBOLS}. This may lead to failure or freezing during solving.", 
+                stacklevel=2)
+            
         return []
     
-    def denom_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+    def denom_poles(self,  i: int, j: int, vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         return []
     
-    def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
+    def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> tuple[dict, sp.Set]:
         """
         Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
@@ -562,17 +621,7 @@ class GreensFunctionCalculator:
         # optional: a list of SymPy assumptions to resolve ambiguous points for the solver
         predicates, choices = self._split_case_assumptions(case_assumptions)
 
-        if solve_for is None:
-            solve_for = self.d - 1  # default to last dimension
-            log.debug("No solve_for input provided. Defaulting to solve_for=%d", solve_for)
-        # validate index
-        if not isinstance(solve_for, int):
-            raise TypeError(
-                f"'solve_for' must be an int in [0, {self.d-1}] (k-dimension index).")
-        if solve_for < 0 or solve_for >= self.d:
-            valid_indices = ", ".join(str(i) for i in range(self.d))
-            raise ValueError(
-                f"'solve_for' out of range: got {solve_for}, valid indices are {{{valid_indices}}}.")
+        solve_for = self._clean_solve_for(solve_for=solve_for, dimension=self.d)
 
         k_var = self.k_symbols[solve_for]  # variable to solve for
         log.info("Computing roots of G⁻¹(k) for variable %s.", k_var)
@@ -1020,6 +1069,7 @@ class GreensFunctionCalculator:
                 # e is guaranteed even here
                 Q_terms.append(c * u_sym**(e // 2)) # exponent halved
             Q = sp.add(*Q_terms) if Q_terms else 0
+            Q = sp.Poly(Q.as_expr(), u_sym, domain=sp.EX) # turn into sp.Poly object
         else:
             u_sym = None
             Q = None
@@ -1047,6 +1097,89 @@ class GreensFunctionCalculator:
 
         # General case: zero set of expr in Complexes
         return sp.ConditionSet(x, sp.Eq(expr, 0), sp.Complexes)
+
+    def _compile_polynomials(self, poly: Poly | sp.Poly | sp.Expr, *, var: sp.Symbol = None, backend: str = "mpmath", prec: int = 80):
+        """
+        Compile P(k; params), P'(k; params) and optionally a matrix Nij(k; params)
+        into fast numeric callables with a deterministic parameter order.
+
+        Parameters
+        ----------
+        P : ExprLike
+            Main polynomial/expression in the solve-for variable (e.g., k_z).
+        var : sp.Symbol, optional
+            Solve-for variable. If None, inferred (deterministically) from symbols.
+        params : Iterable[sp.Symbol], optional
+            Fixed parameter order. If None, inferred from free symbols minus 'var'.
+        Nij : MatrixLike, optional
+            A matrix (list of lists or sp.Matrix) of expressions/polynomials to compile.
+        backend : {"numpy", "mpmath"}
+            Backend fed into sympy.lambdify.
+        prec : int
+            Precision hint for mpmath workflows (set mp.mp.dps externally when using).
+        use_even_speedup : bool
+            If True, tries to factor P(k) into Q(u) with u=k**2 when P is even in k and
+            uses P'(k) = 2*k*Q'(k**2). Falls back to plain d/dk if unsuccessful.
+
+        Returns
+        -------
+        GenericCompiled
+            Holder with callables and metadata.
+        """
+        if backend not in ("numpy", "mpmath"):
+            raise ValueError("backend must be 'numpy' or 'mpmath'")
+        modules = backend # used for sp.lambdify
+
+        if isinstance(poly, Poly):
+            poly_dc = poly # differentiate dataclass Poly from sp.Poly object
+            k = poly_dc.var
+            P = poly_dc.poly # sp.Poly object now
+            deg = poly_dc.degree
+            even = poly_dc.even
+            params = poly_dc.free_params
+            if even:
+                u = poly_dc.u # squared variable
+                u_poly = poly_dc.u_poly # reduced polynomial for u, sp.Poly object
+        elif var is None:
+            raise ValueError("No variable provided. If poly is not a Poly dataclass, 'var' needs to be provided.")
+        elif isinstance(poly, Union[sp.Expr, sp.Basic]):
+            poly = poly.as_expr()
+            poly = self._poly_in(var, poly) # sp.Poly object now
+        if isinstance(poly,sp.Poly):
+            k = var
+            deg, even, params, u, u_poly = self._gather_poly_metadata(poly, k)
+            P = poly # consistent naming between cases
+
+        # Try even reduction
+        if even:
+            assert u is not None, "for an even polynomial, a squared variable should have been generated."
+            Q = u_poly
+            assert Q.has(u), "Q should depend on variable u."
+            dQ_du = Q.diff(u) # still sp.Poly 
+            dP_dk = sp.cancel(2 * k * dQ_du.subs({u: k**2}))
+        else:
+            dQ_du = None
+            dP_dk = P.diff(k)
+
+        # Lambdify P and P'
+        P = sp.lambdify((k, *params), P, modules=modules)
+        dP_dk = sp.lambdify((k, *params), dP_dk, modules=modules)
+        if Q is not None:
+            Q = sp.lambdify((u, *params), Q, modules=modules)
+            dQ_du = sp.lambdify((u, *params), dQ_du, modules=modules)
+
+        return GenericCompiled(
+            var=k,
+            params=params,
+            backend=backend,
+            prec=prec,
+            even=even,
+            P=P,
+            Pprime=dP_dk,
+            u=u,
+            Q=Q,
+            Qprime=dQ_du,
+        )
 
     def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
         """
