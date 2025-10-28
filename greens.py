@@ -554,7 +554,7 @@ class GreensFunctionCalculator:
         return tuple(sorted(params, key=sp.default_sort_key))
     
     def det_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None) -> dict[Union[float, sp.Basic]: Union[int, sp.Basic]]:
-        log.debug("Starting exact pole computation for det(G_inv).")
+        log.debug("Starting pole computation for det(G_inv).")
         solve_for = self._clean_solve_for(solve_for, dimension=self.d)
 
         # 1) Unpacking poly dataclass
@@ -588,9 +588,10 @@ class GreensFunctionCalculator:
         # 3) Root solving
         ### First, try root solving for the reduced polynomial:
         if even:
+            log.debug("Even reduction succesful.")
             Q = det_poly_dc.u_poly
             u = det_poly_dc.u
-            log.debug("Computing roots of the reduced polynomial Q(%s).", u)
+            log.debug("Computing roots of the reduced polynomial Q(%s) of order %d.", u, Q.degree())
             assert Q.has(u), "Q should depend on variable u."
             Q_eval = Q.subs(vals)
             leftover_Q = Q_eval.free_symbols - {u}
@@ -602,13 +603,22 @@ class GreensFunctionCalculator:
                 mult = u_roots[r]
                 roots[root_val] = roots.get(root_val,0) + mult
                 roots[-root_val] = roots.get(-root_val,0) + mult
+            log.debug("Found %d unique roots.", len(roots))
             return roots
+        ### No even reduction possible; direct approach:
+        log.debug("Even reduction not possible.")
         log.debug("Computing roots of the polynomial P(%s) without even reduction.", k_var)
         roots = self._poly_roots(P_eval, k_var)
-        return roots
+        log.debug("Found %d unique roots.", len(roots))
+
+        return roots # Roots of det are poles of the k-space Green's function
     
-    def denom_poles(self,  i: int, j: int, vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
-        return []
+    def denom_poles(self,  i: int, j: int, vals: dict, solve_for: int = None, halfplane: str = None) -> list[tuple[str, sp.Set]]:
+        log.debug("Starting pole computation for the denominator of adj(G_inv)_%d%d.", i, j)
+        solve_for = self._clean_solve_for(solve_for, dimension=self.d)
+
+        # 1) Unpacking poly dataclass
+        return {} # Zeros in the denominators of adj(G_inv) are poles of the k-space Green's function
     
     def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> tuple[dict, sp.Set]:
         """
