@@ -51,7 +51,7 @@ class Poly:
     free_params: Tuple[sp.Symbol, ...] = ()  # symbols in P other than `var`
 
 @dataclass
-class GenericCompiled:
+class PolyCompiled:
     """
     Backend-compiled numeric callables and metadata for:
       - P(k, *params)
@@ -81,7 +81,8 @@ MatrixLike = Union[np.ndarray, sp.Matrix]
 ArrayLike  = Union[Sequence[float], np.ndarray, sp.Matrix]
 #ExprLike = Union[sp.Expr, sp.Poly, Poly] # for some reason this won't be accepted as a type
 
-NUM_EIG_TOL = 1e-8 # reconstruction tolerance for eigen-decomp checks
+NUM_TOL = 1e-8 # numerical tolerance for equality checks
+DIGITS = 8
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 
 TIMEOUT_GATE = 12.0 # seconds
@@ -556,26 +557,46 @@ class GreensFunctionCalculator:
         log.debug("Starting exact pole computation for det(G_inv).")
         solve_for = self._clean_solve_for(solve_for, dimension=self.d)
 
+        # 1) Unpacking poly dataclass
         det_poly_dc = self.determinant_poly(solve_for=solve_for) # dc: Poly dataclass
         k_var = det_poly_dc.var  # variable to solve for
-        log.info("Computing roots of det(G⁻¹(k))=0 for variable %s.", k_var)
-
-        poly = det_poly_dc.poly # polynomial
+        P = det_poly_dc.poly
+        deg = det_poly_dc.degree
+        params = det_poly_dc.free_params
         even = det_poly_dc.even
-        free_params = det_poly_dc.free_params
-
-        det_G_inv = det_G_inv.subs(vals)
-        log.debug("Substituted given numeric values into det(G⁻¹): %s", vals)
-        free_symbols = det_G_inv.free_symbols
-        free_symbols_list = list(free_symbols) # ordered list of free symbols to be returned with the result
-        leftover_symbols = free_symbols - set(self.k_symbols)
-        REQUIRED_SYMBOLS = self.get_required_symbols()
-        if leftover_symbols & REQUIRED_SYMBOLS:
-            warnings.warn(
-                f"Insufficient substsitution values provided, det(G⁻¹) still contains unresolved symbols: {leftover_symbols & REQUIRED_SYMBOLS}. This may lead to failure or freezing during solving.", 
-                stacklevel=2)
+        log.info("Computing roots of det(G⁻¹(k))=0 for variable %s.", k_var)
+        log.debug("det(G⁻¹(k)) is a %dth order polynomial in %s.", deg, k_var)
+        # Short-circuit for constant:
+        if not P.has(k_var):
+            # constant in the solve variable -> either identically zero (singular) or no roots
+            if sp.cancel(P).equals(0):
+                raise ValueError(f"det G⁻¹ is identically zero; G⁻¹ is singular for all {k_var}.")
+            warnings.warn(f"det(G⁻¹) is constant and non-zero in {k_var}; no roots to solve for, returning empty dict.")
+            return {}
+        
+        # 2) Substituting input values
+        P_eval = P.subs(vals)
+        still_free = P_eval.free_symbols
+        leftover = still_free - {k_var}
+        required = set(params)
+        if leftover & required:
+             raise ValueError(
+                 "Insufficient substsitution values provided in 'vals'"
+                 f"det(G⁻¹) still contains unresolved symbols: {leftover & required}.", 
+                 stacklevel=2)
+        
+        # 3) Root solving
+        ### First, try root solving for the reduced polynomial:
+        if even:
+            Q = det_poly_dc.u_poly
+            u = det_poly_dc.u
+            assert Q.has(u), "Q should depend on variable u."
+            Q_eval = Q.subs(vals)
+            leftover_Q = Q_eval.free_symbols - {u}
+            assert not leftover_Q, f"Reduced polynomial should have no unknown parameters after eval. Found: {leftover_Q}"
             
-        return []
+            
+        return {}
     
     def denom_poles(self,  i: int, j: int, vals: dict, solve_for: int = None, halfplane: str = None, case_assumptions: list = None) -> list[tuple[str, sp.Set]]:
         return []
@@ -1168,7 +1189,7 @@ class GreensFunctionCalculator:
             Q = sp.lambdify((u, *params), Q, modules=modules)
             dQ_du = sp.lambdify((u, *params), dQ_du, modules=modules)
 
-        return GenericCompiled(
+        return PolyCompiled(
             var=k,
             params=params,
             backend=backend,
@@ -1204,10 +1225,6 @@ class GreensFunctionCalculator:
         log.debug("Determinant computed symbolically with Berkowitz algorithm")
         return det_A
     
-    
-
-
-
     def _try_even_reduction(self, det, k):
         # det is det(G^{-1})(k); k is the solve variable
         # Check evenness: D(-k) == D(k)
@@ -1225,6 +1242,63 @@ class GreensFunctionCalculator:
         poly_t = sp.Poly(sum(c * t**e for e, c in coeffs.items()), t, domain=sp.EX)
         return poly_t, t
     
+    def _poly_roots(self, poly: sp.Poly, var) -> dict:
+        # Garantee univariate polynomial:
+        poly = sp.Poly(poly, var, domain="EX")
+        if poly.degree() <= 0:
+            warnings.warn(f"Poly constant in {var}. Should have triggered earlier. Returning empty dict.")
+            return {}
+        # First attempt: exact root solving directly with poly.roots()
+        try:
+            log.debug("Attempting exact root solving with poly.roots().")
+            roots = func_timeout(TIMEOUT_GATE, poly.roots)
+            log.debug("Direct root solving successful.")
+            return roots
+        except FunctionTimedOut:
+            warnings.warn(f"Exact poly.roots() solving exceeded {TIMEOUT_GATE} seconds.")
+        # Second attempt: exact root solving indirectly via factorization
+        try: 
+            log.debug("Attempting root solving with factorization.")
+            # Square-free decomposition:
+            _, factors = func_timeout(TIMEOUT_GATE,poly.sqf_list) # factors is a list of (factor, multplicity) tuples
+            log.debug("Square-free decomposition of poly successful.")
+            roots = {}
+            for f, mult in factors:
+                f_roots = func_timeout(TIMEOUT_GATE,f.roots)
+                for r in f_roots.keys():
+                    m = f_roots[r]*mult # update multiplicity with decomposition factor
+                    roots[r] = roots.get(r, 0) + m
+            log.debug("Root solving via factorization successful.")    
+            return roots        
+        except FunctionTimedOut:
+            warnings.warn(f"Root solving with factorization exceeded {TIMEOUT_GATE} seconds.")
+        # Third attempt: numerical root solving with poly.nroots()
+        try:
+            log.debug("Attempting numerical root solving with poly.nroots().")
+            # Numerical root approximation before clustering:
+            roots_list = func_timeout(TIMEOUT_GATE,poly.nroots) # returns list of roots as float objects
+            log.debug("Roots successfully approximated numerically; not yet clustered.")
+            # Sort deterministically by (Re, Im)
+            roots_sorted = sorted(roots_list, key=lambda z: (sp.re(z), sp.im(z)))
+            # Clustering effectively equal roots
+            clusters = []  # list of 2-item lists[[mean_value, mult], ...]
+            for z in roots_sorted:
+                if clusters and abs(z - clusters[-1][0]) <= NUM_TOL: # due to ordering, checking last added is sufficient 
+                    # weighted centroid update for stability
+                    c, m = clusters[-1]
+                    clusters[-1] = [(c*m + z) / (m + 1), m + 1] # [new mean, new mult)]
+                else:
+                    clusters.append([z, 1])
+            # Canonicalize keys: round to 'DIGITS' to avoid tiny noise
+            roots = {}
+            for c, m in clusters:
+                c_key = sp.N(c, digits=DIGITS) # SymPy Float/ComplexFloat at given precision
+                roots[c_key] = roots.get(c_key, 0) + m
+            log.debug("Clustering of root approximations successfull. Roots dict returned.")
+            return roots
+        except FunctionTimedOut:
+            raise RuntimeError(f"All attempts at root solving exceeded {TIMEOUT_GATE} seconds. Investigate.")
+
     def _factorize_poly_and_find_roots(self, poly, variable):
         constants, factors = sp.factor_list(poly.as_expr())
         log.debug("Factorization of polynomial successful. There are %d factors.", len(factors))
@@ -1505,25 +1579,25 @@ class GreensFunctionCalculator:
             offdiag = D_recon.copy()
             np.fill_diagonal(offdiag, 0.0)
             offdiag_norm = np.linalg.norm(offdiag)
-            if offdiag_norm > NUM_EIG_TOL:
+            if offdiag_norm > NUM_TOL:
                 raise ValueError(
-                    f"Eigendecomposition inconsistent: off-diagonal norm {offdiag_norm:.2e} exceeds {NUM_EIG_TOL:.1e}"
+                    f"Eigendecomposition inconsistent: off-diagonal norm {offdiag_norm:.2e} exceeds {NUM_TOL:.1e}"
                 )
             # (2) Diagonal entries should match eigenvalues within tolerance (order already enforced by sorting)
             diag_diff = np.diag(D_recon) - np.diag(D)
             # normalization for appropriate tolerance scaling:
             rel_err = np.linalg.norm(diag_diff) / \
                 max(1.0, np.linalg.norm(np.diag(D)))
-            if rel_err > NUM_EIG_TOL:
+            if rel_err > NUM_TOL:
                 raise ValueError(
-                    f"Eigendecomposition inconsistent: diagonal mismatch rel. error {rel_err:.2e} exceeds {NUM_EIG_TOL:.1e}"
+                    f"Eigendecomposition inconsistent: diagonal mismatch rel. error {rel_err:.2e} exceeds {NUM_TOL:.1e}"
                 )
             # (3) Final reconstruction check
             # Frobenius norm ought to vanish
             residual_norm = np.linalg.norm(P @ D @ P_inv - G_inv)
             # normalization for appropriate tolerance scaling
             den = max(1.0, np.linalg.norm(G_inv))
-            if residual_norm / den > NUM_EIG_TOL:
+            if residual_norm / den > NUM_TOL:
                 raise ValueError(
                     "Eigendecomposition failed: reconstruction error above tolerance.")
 
