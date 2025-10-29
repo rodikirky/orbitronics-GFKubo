@@ -49,6 +49,7 @@ class Poly:
     u: Optional[sp.Symbol] = None  # if even: u = var**2
     u_poly: Optional[sp.Poly] = None  # if even: Q(u) with P(var)=Q(var**2)
     free_params: Tuple[sp.Symbol, ...] = ()  # symbols in P other than `var`
+    label: str
 
 @dataclass
 class PolyCompiled:
@@ -404,6 +405,7 @@ class GreensFunctionCalculator:
             u=num_u_sym,
             u_poly=num_Q_poly,
             free_params=num_free_params,
+            label=f"num(A_{i}{j}({k_var})"
         )
         den_poly_data = Poly(
             var=k_var,
@@ -413,6 +415,7 @@ class GreensFunctionCalculator:
             u=den_u_sym,
             u_poly=den_Q_poly,
             free_params=den_free_params,
+            label=f"denom(A_{i}{j}({k_var})"
         )
 
         # 6) Return matrix entry and denominator as polynomial in the Poly dataclass
@@ -468,6 +471,7 @@ class GreensFunctionCalculator:
             u=u_sym,
             u_poly=Q_poly,
             free_params=free_params,
+            label=f"det(G⁻¹({k_var}))"
         )
     # endregion
 
@@ -553,25 +557,25 @@ class GreensFunctionCalculator:
             params = expr.free_symbols - {k_var}
         return tuple(sorted(params, key=sp.default_sort_key))
     
-    def det_poles(self,  vals: dict, solve_for: int = None, halfplane: str = None) -> dict[Union[float, sp.Basic]: Union[int, sp.Basic]]:
+    def poly_poles(self,  poly: Poly, vals: dict, halfplane: str = None) -> dict[Union[float, sp.Basic]: Union[int, sp.Basic]]:
         log.debug("Starting pole computation for det(G_inv).")
-        solve_for = self._clean_solve_for(solve_for, dimension=self.d)
 
         # 1) Unpacking poly dataclass
-        det_poly_dc = self.determinant_poly(solve_for=solve_for) # dc: Poly dataclass
-        k_var = det_poly_dc.var  # variable to solve for
-        P = det_poly_dc.poly
-        deg = det_poly_dc.degree
-        params = det_poly_dc.free_params
-        even = det_poly_dc.even
-        log.info("Computing roots of det(G⁻¹(k))=0 for variable %s.", k_var)
-        log.debug("det(G⁻¹(k)) is a %dth order polynomial in %s.", deg, k_var)
+        poly_dc = poly # dataclass that needs to be unpacked
+        label = poly.label # label for comprehensive logging
+        k_var = poly.var  # variable to solve for
+        P = poly.poly # sp.Poly polynomial
+        deg = poly.degree
+        params = poly.free_params
+        even = poly.even
+        log.info("Computing roots of %s=0.", label)
+        log.debug("%s is a %dth order polynomial.", label, deg)
         # Short-circuit for constant:
         if not P.has(k_var):
             # constant in the solve variable -> either identically zero (singular) or no roots
             if sp.cancel(P).equals(0):
-                raise ValueError(f"det G⁻¹ is identically zero; G⁻¹ is singular for all {k_var}.")
-            warnings.warn(f"det(G⁻¹) is constant and non-zero in {k_var}; no roots to solve for, returning empty dict.")
+                raise ValueError(f"{label} is identically zero; G⁻¹ is singular for all {k_var}.")
+            warnings.warn(f"{label} is constant and non-zero in {k_var}; no roots to solve for, returning empty dict.")
             return {}
         
         # 2) Substituting input values
@@ -589,8 +593,8 @@ class GreensFunctionCalculator:
         ### First, try root solving for the reduced polynomial:
         if even:
             log.debug("Even reduction succesful.")
-            Q = det_poly_dc.u_poly
-            u = det_poly_dc.u
+            Q = poly.u_poly
+            u = poly.u
             log.debug("Computing roots of the reduced polynomial Q(%s) of order %d.", u, Q.degree())
             assert Q.has(u), "Q should depend on variable u."
             Q_eval = Q.subs(vals)
@@ -603,22 +607,15 @@ class GreensFunctionCalculator:
                 mult = u_roots[r]
                 roots[root_val] = roots.get(root_val,0) + mult
                 roots[-root_val] = roots.get(-root_val,0) + mult
-            log.debug("Found %d unique roots.", len(roots))
-            return roots
         ### No even reduction possible; direct approach:
-        log.debug("Even reduction not possible.")
-        log.debug("Computing roots of the polynomial P(%s) without even reduction.", k_var)
-        roots = self._poly_roots(P_eval, k_var)
+        else:
+            log.debug("Even reduction not possible.")
+            log.debug("Computing roots of the polynomial P(%s) without even reduction.", k_var)
+            roots = self._poly_roots(P_eval, k_var)
         log.debug("Found %d unique roots.", len(roots))
-
+        log.info("Root computation for %s=0 successful.", label)
         return roots # Roots of det are poles of the k-space Green's function
     
-    def denom_poles(self,  i: int, j: int, vals: dict, solve_for: int = None, halfplane: str = None) -> list[tuple[str, sp.Set]]:
-        log.debug("Starting pole computation for the denominator of adj(G_inv)_%d%d.", i, j)
-        solve_for = self._clean_solve_for(solve_for, dimension=self.d)
-
-        # 1) Unpacking poly dataclass
-        return {} # Zeros in the denominators of adj(G_inv) are poles of the k-space Green's function
     
     def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> tuple[dict, sp.Set]:
         """
