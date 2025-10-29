@@ -616,9 +616,9 @@ class GreensFunctionCalculator:
         log.info("Root computation for %s=0 successful.", label)
         return roots # Roots of denominators/determinants are poles of the k-space Green's function
     
-    
     def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> tuple[dict, sp.Set]:
         """
+        DEPRECATED
         Solve for the roots of the eigenvalues of G^{-1}(k) with respect to ONE momentum component,
         i.e., values of momentum where one or more eigenvalues of the inverse Green's function vanish.
         Those poles correspond to the dispersion relations defining the band structure of the material.
@@ -647,6 +647,7 @@ class GreensFunctionCalculator:
         ValueError
             If `solve_for` is out of range [0, d-1].
         """
+        # DEPRECATED METHOD!!
         log.debug("Started root solving")
         self._reset_ambiguities()
         
@@ -741,6 +742,52 @@ class GreensFunctionCalculator:
 
     # region Real-space
     # -- Symbolic 1D real-space Fourier transform --
+    def fourier_entry(self,
+                      i: int, j: int,
+                      z: float | sp.Basic, z_prime: float | sp.Basic,
+                      vals: dict,
+                      poles: dict,
+                      halfplane: str):
+        log.debug("Started Fourier entry computation for matrix entry (%d,%d).", i, j)
+    
+    def fourier_transform(self, 
+                          z: float | sp.Basic, z_prime: float | sp.Basic,
+                          vals: dict,
+                          z_diff_sign: int = None,
+                          solve_for: int = None):
+        # Halfplane choice:
+        halfplane = self._halfplane_choice(z, z_prime, z_diff_sign=z_diff_sign)
+        if halfplane == "coincidence":
+            raise ValueError("z and z' must not coincide.")
+        if halfplane is None:
+            raise ValueError("Choose numbers for z, z' or declare z_diff_sign for the halfplane choice.")
+        
+        # Preparing G(k) = adj(G_inv)/det(G_inv):
+        solve_for = self._clean_solve_for(solve_for, self.d)
+        A = self.adjugate_greens_inverse()
+        det_poly_dc = self.determinant_poly(solve_for) # Poly dataclass
+        k_var = det_poly_dc.var
+
+        # Pole selection:
+        det_poles = self.poly_poles(det_poly_dc, vals, halfplane)
+        rows, cols = self.I.shape
+        for i in range (rows):
+            for j in range (cols):
+                # Cancelling common dividers 
+                num, den = sp.fraction(A[i][j])
+                Pnum = self._poly_in(k_var, num.as_expr())
+                Pden = self._poly_in(k_var, den.as_expr())
+                gcd = sp.gcd(Pnum, Pden) # sp.Poly object returned
+                if gcd.has(k_var):
+                    Pnum = Pnum.quo(gcd)
+                    Pden = Pden.quo(gcd)
+                
+                entry_poles = det_poles # to be updated
+                num_poly_dc, denom_poly_dc = self.numerator_denominator_poly(A,i,j,solve_for) # two Poly dataclasses
+                denom_poles = self.poly_poles(denom_poly_dc, vals, halfplane)
+                #entry_poles.update(denom_poles)
+                #entry = self.fourier_entry()
+
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
                                                          z: float | sp.Basic,
                                                          z_prime: float | sp.Basic,
@@ -773,6 +820,7 @@ class GreensFunctionCalculator:
         G(z, z′): matrix;
             The symbolic real-space Green's function matrix.
         """
+        # DEPRECATED METHOD!!!
         log.debug("Started 1D real-space transform of the %s Green's function.", self.green_type)
         self._reset_ambiguities()
 
@@ -973,19 +1021,6 @@ class GreensFunctionCalculator:
     # endregion
 
     # region Internal utilities
-
-    @staticmethod
-    def _halfplane_choice(z, z_prime):
-        # numeric-only decision; returns +1, -1, 0, or None (unknown)
-        z, z_prime = sp.sympify(z), sp.sympify(z_prime)
-        if z.is_real is not True or z_prime.is_real is not True:
-            raise ValueError("Both z and z′ must be real numbers or real symbols.")
-        if z.is_number and z_prime.is_number:
-            if z > z_prime:  return +1
-            if z < z_prime:  return -1
-            return 0
-        return None
-    
     @staticmethod
     def _clean_solve_for(solve_for: int | None, dimension: int):
         d = dimension
@@ -1172,7 +1207,22 @@ class GreensFunctionCalculator:
             root_selection[r] = mult
         log.debug("Halfplane selection for %s successful.", poly_label)
         return root_selection
-
+    
+    @staticmethod
+    def _halfplane_choice(z: sp.Symbol | float, z_prime: sp.Symbol | float, z_diff_sign: int = None) -> str | None:
+        # numeric-only decision; returns +1, -1, 0, or None (unknown)
+        if z.is_real is not True or z_prime.is_real is not True:
+            raise ValueError("Both z and z′ must be real numbers or real symbols.")
+        if z.is_number and z_prime.is_number:
+            if z > z_prime:  return "upper"
+            if z < z_prime:  return "lower"
+            return "coincidence"
+        if z_diff_sign is not None: 
+            if z_diff_sign > 0: return "upper"
+            if z_diff_sign < 0: return "lower"
+            raise ValueError(f"Expected z_diff_sign from (1,-1,None). Got {z_diff_sign}.")
+        return None
+    
     def _compile_polynomials(self, poly: Poly | sp.Poly | sp.Expr, *, var: sp.Symbol = None, backend: str = "mpmath", prec: int = 80):
         """
         Compile P(k; params), P'(k; params) and optionally a matrix Nij(k; params)
