@@ -600,21 +600,21 @@ class GreensFunctionCalculator:
             Q_eval = Q.subs(vals)
             leftover_Q = Q_eval.free_symbols - {u}
             assert not leftover_Q, f"Reduced polynomial should have no unknown parameters after eval. Found: {leftover_Q}"
-            u_roots = self._poly_roots(Q_eval, u)
+            u_roots = self._poly_roots(Q_eval, u, halfplane=halfplane) # includes halfplane selection
             roots = {}
             for r in u_roots.keys():
-                root_val = sp.sqrt(r)
                 mult = u_roots[r]
+                root_val = sp.sqrt(r) # halfplane selection still holds, since sign of Im(sqrt(r)) is the same as sign of Im(r)
                 roots[root_val] = roots.get(root_val,0) + mult
                 roots[-root_val] = roots.get(-root_val,0) + mult
         ### No even reduction possible; direct approach:
         else:
             log.debug("Even reduction not possible.")
             log.debug("Computing roots of the polynomial P(%s) without even reduction.", k_var)
-            roots = self._poly_roots(P_eval, k_var)
+            roots = self._poly_roots(P_eval, k_var, halfplane=halfplane) # includes halfplane selection
         log.debug("Found %d unique roots.", len(roots))
         log.info("Root computation for %s=0 successful.", label)
-        return roots # Roots of det are poles of the k-space Green's function
+        return roots # Roots of denominators/determinants are poles of the k-space Green's function
     
     
     def compute_roots_greens_inverse(self, solve_for: int = None, vals: dict = None, case_assumptions: list = None) -> tuple[dict, sp.Set]:
@@ -1135,6 +1135,44 @@ class GreensFunctionCalculator:
         # General case: zero set of expr in Complexes
         return sp.ConditionSet(x, sp.Eq(expr, 0), sp.Complexes)
 
+    @staticmethod
+    def _halfplane_selection(roots: dict, var: sp.Symbol, poly_label: str, halfplane: str = None):
+        if halfplane in {"upper", "lower"}:
+            im_sign = 1 if halfplane == "upper" else -1
+        elif halfplane is not None:
+            raise ValueError(f"Unknown halfplane input: {halfplane}. Choose one of ('upper','lower').")
+        else:
+            im_sign = None
+            log.debug("No halfplane specified. Returning all roots.")
+            return roots
+        root_selection = {}
+        for r in roots.keys():
+            mult = roots[r]
+            if im_sign is not None:
+                # Halfplane selection
+                try:
+                    im = func_timeout(TIMEOUT_GATE, sp.im, args=(r))
+                    sgn = func_timeout(TIMEOUT_GATE,sp.sign, args=(im)) 
+                    # if this freezes, try an altered version of self._im_sign_of_root:
+                    #sgn = self._im_sign_of_root(r, i, n, predicates=predicates, choices=choices) # records ambiguities for symbolic roots
+                except FunctionTimedOut:
+                    sgn = None
+                if sgn not in {-1, 0, 1}:
+                    warnings.warn(f"Sign of Im(r) for root r = {r} of {poly_label} could not be determined. Root skipped. Investigate!")
+                    # There should not be ambiguities if the roots are not symbolic
+                    continue 
+                elif sgn.equals(0):
+                    raise ValueError(
+                        f"Pole at {var}={r} (m={mult}) lies on the real axis; integral is ill-defined. Provide finite broadening η.")
+                elif sgn in {-1, 1} and sgn != im_sign:
+                    log.debug("Pole %s=%s (m=%s) of %s lies in wrong half-plane; skipped.", var, r, mult, poly_label)
+                    continue
+                else:
+                    pass # continue with adding this root the dict, since sgn==im_sign 
+            root_selection[r] = mult
+        log.debug("Halfplane selection for %s successful.", poly_label)
+        return root_selection
+
     def _compile_polynomials(self, poly: Poly | sp.Poly | sp.Expr, *, var: sp.Symbol = None, backend: str = "mpmath", prec: int = 80):
         """
         Compile P(k; params), P'(k; params) and optionally a matrix Nij(k; params)
@@ -1258,39 +1296,41 @@ class GreensFunctionCalculator:
         poly_t = sp.Poly(sum(c * t**e for e, c in coeffs.items()), t, domain=sp.EX)
         return poly_t, t
     
-    def _poly_roots(self, poly: sp.Poly, var: sp.Symbol) -> dict:
+    def _poly_roots(self, poly: sp.Poly, var: sp.Symbol, poly_label: str, halfplane: str = None) -> dict:
         # Garantee univariate polynomial:
         poly = sp.Poly(poly, var, domain="EX")
         if poly.degree() <= 0:
-            warnings.warn(f"Poly constant in {var}. Should have triggered earlier. Returning empty dict.")
+            warnings.warn(f"{poly_label} constant in {var}. Should have triggered earlier. Returning empty dict.")
             return {}
         # First attempt: exact root solving directly with poly.roots()
         try:
-            log.debug("Attempting exact root solving with poly.roots().")
+            log.debug("Attempting exact root solving with poly.roots() for %s.", poly_label)
             roots = func_timeout(TIMEOUT_GATE, poly.roots)
-            log.debug("Direct root solving successful.")
-            return roots
+            log.debug("Direct root solving successful for %s.", poly_label)
+            root_selection = self._halfplane_selection(roots, var, poly_label=poly_label, halfplane=halfplane)
+            return root_selection
         except FunctionTimedOut:
-            warnings.warn(f"Exact poly.roots() solving exceeded {TIMEOUT_GATE} seconds.")
+            warnings.warn(f"Exact poly.roots() solving exceeded {TIMEOUT_GATE} seconds for {poly_label}")
         # Second attempt: exact root solving indirectly via factorization
         try: 
-            log.debug("Attempting root solving with factorization.")
+            log.debug("Attempting root solving with factorization for %s.", poly_label)
             # Square-free decomposition:
             _, factors = func_timeout(TIMEOUT_GATE,poly.sqf_list) # factors is a list of (factor, multplicity) tuples
-            log.debug("Square-free decomposition of poly successful.")
+            log.debug("Square-free decomposition of poly successful for %s.", poly_label)
             roots = {}
             for f, mult in factors:
                 f_roots = func_timeout(TIMEOUT_GATE,f.roots)
                 for r in f_roots.keys():
                     m = f_roots[r]*mult # update multiplicity with decomposition factor
                     roots[r] = roots.get(r, 0) + m
-            log.debug("Root solving via factorization successful.")    
-            return roots        
+            log.debug("Root solving via factorization successful for %s.", poly_label) 
+            root_selection = self._halfplane_selection(roots, var, poly_label=poly_label, halfplane=halfplane)
+            return root_selection
         except FunctionTimedOut:
-            warnings.warn(f"Root solving with factorization exceeded {TIMEOUT_GATE} seconds.")
+            warnings.warn(f"Root solving with factorization exceeded {TIMEOUT_GATE} seconds for {poly_label}")
         # Third attempt: numerical root solving with poly.nroots()
         try:
-            log.debug("Attempting numerical root solving with poly.nroots().")
+            log.debug("Attempting numerical root solving with poly.nroots() for %s.", poly_label)
             # Numerical root approximation before clustering:
             poly_monic = poly.monic() # divides the polynomial by its leading coefficient
             roots_list = func_timeout(TIMEOUT_GATE,poly_monic.nroots) # returns list of roots as float objects
@@ -1311,10 +1351,12 @@ class GreensFunctionCalculator:
             for c, m in clusters:
                 c_key = sp.N(c, digits=DIGITS) # SymPy Float/ComplexFloat at given precision
                 roots[c_key] = roots.get(c_key, 0) + m
-            log.debug("Clustering of root approximations successfull. Roots dict returned.")
-            return roots
+            log.debug("Clustering of root approximations successfull for %s. Roots dict returned.", poly_label)
+            root_selection = self._halfplane_selection(roots, var, poly_label=poly_label, halfplane=halfplane)
+            return root_selection
         except FunctionTimedOut:
-            raise RuntimeError(f"All attempts at root solving exceeded {TIMEOUT_GATE} seconds. Investigate.")
+            raise RuntimeError(f"All attempts at root solving for {poly_label} exceeded {TIMEOUT_GATE} seconds. Investigate.")
+        
 
     def _factorize_poly_and_find_roots(self, poly, variable):
         constants, factors = sp.factor_list(poly.as_expr())
