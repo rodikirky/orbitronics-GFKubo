@@ -25,6 +25,7 @@ __all__ = ["GreensFunctionCalculator"]
 import numpy as np
 import sympy as sp
 from sympy import pprint, PolynomialError, ConditionSet
+import mpmath
 from typing import Callable, Union, Sequence, Optional, Tuple, List
 from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
@@ -340,7 +341,7 @@ class GreensFunctionCalculator:
         adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
         return adjugate
     
-    def numerator_denominator_poly(self, A: MatrixLike, i: int, j: int, solve_for: int = None) -> tuple[Poly, Poly]: 
+    def numerator_denominator_poly(self, ratio: sp.Basic, i: int, j: int, solve_for: int = None) -> tuple[Poly, Poly]: 
         '''
         Selects a matrix entry according to the indeces provided and checks whether that entry has a denominator that depend in the 
         variable to solve for 'k_var'.
@@ -349,9 +350,9 @@ class GreensFunctionCalculator:
 
         Parameters
         ----------
-        A: MatrixLike
-            Matrix for entry choice
-            usually the adjugate of G_inv
+        ratio: sp.Basic
+            Rational function with polynomials in numerator and denominator.
+            usually the i,j-entry of the adjugate of G_inv
         i: int
             Row index
         j: int
@@ -373,7 +374,7 @@ class GreensFunctionCalculator:
             If called in numeric mode.
         '''
         # 1) Select the chosen entry and identify its denominator
-        A_ij = sp.cancel(A[i][j])
+        A_ij = sp.cancel(ratio)
         if not self.symbolic:
             raise ValueError("Polynomial cannot be constructed in numeric mode (symbolic = False). Returning matrix entry and None.")
         solve_for = self._clean_solve_for(solve_for, dimension=self.d)
@@ -755,37 +756,42 @@ class GreensFunctionCalculator:
                           vals: dict,
                           z_diff_sign: int = None,
                           solve_for: int = None):
-        # Halfplane choice:
+        # 1. Halfplane choice:
         halfplane = self._halfplane_choice(z, z_prime, z_diff_sign=z_diff_sign)
         if halfplane == "coincidence":
             raise ValueError("z and z' must not coincide.")
         if halfplane is None:
             raise ValueError("Choose numbers for z, z' or declare z_diff_sign for the halfplane choice.")
         
-        # Preparing G(k) = adj(G_inv)/det(G_inv):
+        # 2. Preparing G(k) = adj(G_inv)/det(G_inv):
         solve_for = self._clean_solve_for(solve_for, self.d)
         A = self.adjugate_greens_inverse()
         det_poly_dc = self.determinant_poly(solve_for) # Poly dataclass
+        det_compiled = self._compile_polynomials(poly=det_poly_dc) # PolyCompiled dataclass
+        args_det = det_compiled.args_from_dict(vals)
         k_var = det_poly_dc.var
 
-        # Pole selection:
+        # 3. Collecting poles for the residue sum
+        ## a)Pole selection in det:
         det_poles = self.poly_poles(det_poly_dc, vals, halfplane)
         rows, cols = self.I.shape
         for i in range (rows):
             for j in range (cols):
-                # Cancelling common dividers 
-                num, den = sp.fraction(A[i][j])
-                Pnum = self._poly_in(k_var, num.as_expr())
-                Pden = self._poly_in(k_var, den.as_expr())
-                gcd = sp.gcd(Pnum, Pden) # sp.Poly object returned
-                if gcd.has(k_var):
-                    Pnum = Pnum.quo(gcd)
-                    Pden = Pden.quo(gcd)
-                
-                entry_poles = det_poles # to be updated
-                num_poly_dc, denom_poly_dc = self.numerator_denominator_poly(A,i,j,solve_for) # two Poly dataclasses
+                ## b) Cancelling common divisors in A_ij to avoid pole doubling:
+                Pnum, Pdenom, A_ij = self._cancel_common_divisors(A[i][j], k_var)
+                ## c) Lambdifying numerator and denominator if A_ij:
+                num_poly_dc, denom_poly_dc = self.numerator_denominator_poly(A_ij,i,j,solve_for) # two Poly dataclasses
+                num_compiled = self._compile_polynomials(poly=num_poly_dc) # PolyCompiled dataclass
+                args_num = num_compiled.args_from_dict(vals)
+                denom_compiled = self._compile_polynomials(poly=denom_poly_dc) # PolyCompiled dataclass
+                args_denom = denom_compiled.args_from_dict(vals)
+                ## d) Cancelling zeros of A_ij from det_poles:
+                for r in det_poles.keys():
+                    m = det_poles[r]
+                    value = num_compiled.P(r,*args_num)
+                ## c) Pole selection in A_ij:
                 denom_poles = self.poly_poles(denom_poly_dc, vals, halfplane)
-                #entry_poles.update(denom_poles)
+
                 #entry = self.fourier_entry()
 
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
@@ -1222,6 +1228,19 @@ class GreensFunctionCalculator:
             if z_diff_sign < 0: return "lower"
             raise ValueError(f"Expected z_diff_sign from (1,-1,None). Got {z_diff_sign}.")
         return None
+    
+    def _cancel_common_divisors(self, ratio: sp.Basic, var: sp.Symbol) -> tuple[sp.Poly,sp.Poly,sp.Expr]:
+        num, den = sp.fraction(ratio)
+        Pnum = self._poly_in(var, num.as_expr())
+        Pden = self._poly_in(var, den.as_expr())
+        gcd = sp.gcd(Pnum, Pden) 
+        if gcd.has(var):
+            # sp.Poly objects returned; Reduced polynomials
+            Pnum = Pnum.quo(gcd) 
+            Pden = Pden.quo(gcd)
+        reduced_ratio = Pnum.as_expr() / Pden.as_expr()
+        reduced_ratio = sp.cancel(reduced_ratio)
+        return Pnum, Pden, reduced_ratio.as_expr()
     
     def _compile_polynomials(self, poly: Poly | sp.Poly | sp.Expr, *, var: sp.Symbol = None, backend: str = "mpmath", prec: int = 80):
         """
