@@ -26,6 +26,7 @@ import numpy as np
 import sympy as sp
 from sympy import pprint, PolynomialError, ConditionSet
 import mpmath as mp
+mp.mp.dps = 50 # mp precision
 from typing import Callable, Union, Sequence, Optional, Tuple, List
 from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
@@ -747,52 +748,87 @@ class GreensFunctionCalculator:
                       i: int, j: int,
                       z: float | sp.Basic, z_prime: float | sp.Basic,
                       vals: dict,
-                      poles: dict,
-                      halfplane: str):
-        log.debug("Started Fourier entry computation for matrix entry (%d,%d).", i, j)
-    
-    def fourier_transform(self, 
-                          z: float | sp.Basic, z_prime: float | sp.Basic,
-                          vals: dict,
-                          z_diff_sign: int = None,
-                          solve_for: int = None):
-        # 1. Halfplane choice:
+                      solve_for: int,
+                      z_diff_sign: int = None,
+                      lambdified: bool = True):
+        log.debug("Computing matrix entry G(z.z')_%d%d.", i, j)
+        # 1) Halfplane choice:
         halfplane = self._halfplane_choice(z, z_prime, z_diff_sign=z_diff_sign)
         if halfplane == "coincidence":
             raise ValueError("z and z' must not coincide.")
         if halfplane is None:
             raise ValueError("Choose numbers for z, z' or declare z_diff_sign for the halfplane choice.")
         
-        # 2. Preparing G(k) = adj(G_inv)/det(G_inv):
+        # 2) Poly prep
         solve_for = self._clean_solve_for(solve_for, self.d)
         A = self.adjugate_greens_inverse()
         det_poly_dc = self.determinant_poly(solve_for) # Poly dataclass
+        det_poly = det_poly_dc.poly
         det_compiled = self._compile_polynomials(poly=det_poly_dc) # PolyCompiled dataclass
         args_det = det_compiled.args_from_dict(vals)
         k_var = det_poly_dc.var
-
-        # 3. Collecting poles for the residue sum
-        ## a)Pole selection in det:
+        ## Cancelling common divisors in A_ij to avoid invalid poles:
+        num_poly, denom_poly, A_ij = self._cancel_common_divisors(A[i][j], k_var)
+        num_poly_dc, denom_poly_dc = self.numerator_denominator_poly(A_ij,i,j,solve_for) # two Poly dataclasses
+        
+        # 3) Collecting poles and cancelling with numerator:
         det_poles = self.poly_poles(det_poly_dc, vals, halfplane)
+        det_poles_clean = self._cancel_poles_by_numerator(num_poly_dc,det_poles,label="det_poles", vals=vals)
+        denom_poles = self.poly_poles(denom_poly_dc, vals, halfplane)
+        denom_poles_clean = self._cancel_poles_by_numerator(num_poly_dc,denom_poles,label=f"denom_poles_{i}{j}", vals=vals)
+        all_clean_poles = det_poles_clean
+        for p in denom_poles_clean.keys():
+            m = denom_poles_clean[p]
+            all_clean_poles[p] = all_clean_poles.get(p, default=0) + m
+        log.debug("There are %d true poles in entry (A/det)_%d%d to contribute to the residue sum.", len(all_clean_poles), i, j)
+        
+        # 3) Residue sum
+        # Short-circuit for no poles present:
+        if not all_clean_poles:
+            log.debug("No poles found for entry G(z.z')_%d%d. Fourier transform vanishes. Returning 0.")
+            return 0
+        z_diff = z - z_prime
+        phase = sp.exp(sp.I * k_var * z_diff)
+        residue_sum = 0
+        for n, (k0, m) in enumerate(all_clean_poles):  # pole k0 with their multiplicity m
+            # Residue formula for pole of order m:
+            # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * (numerator(k) / denominator(k) * determinant(k))* phi(k)  ] at k=k0   
+            fraction = num_poly.subs(vals) / (denom_poly.subs(vals) * det_poly.subs(vals))
+            log.debug("Matrix entry %d%d successfully constructed from polynomial num, denom, det.", i, j)
+            first_order = sp.cancel(fraction * (k_var - k0)**m) * phase
+            leftover_syms = first_order.free_symbols - set([k_var, z, z_prime])
+            assert not leftover_syms, f"Expected no free parameters left after substitution. Got {leftover_syms}."
+            if m == 1:
+                res = sp.cancel(first_order.subs({k_var: k0}))
+            else:
+                deriv = sp.cancel(sp.diff(first_order.as_expr(), (k_var, m - 1)))
+                res = sp.cancel(first_order.subs({k_var: k0}) / sp.factorial(m - 1))
+            log.debug("Residue for pole #%d of order %d computed.", n, m)
+            residue_sum += res
+            contributed_any = True
+            log.debug("res sum snapshot after %d poles: %s", n+1, residue_sum)
+        
+        # 4) Residue Theorem for the Fourier integral
+        fourier_entry = sp.I * residue_sum  # factor of i from residue theorem
+
+        # Optional: Lamdification
+        if lambdified:
+            fourier_entry = sp.lambdify((z,z_prime), fourier_entry, 'mpmath') # lambdified function of (z,z') for speed and precision
+            log.debug("Entry G(z,z')_%d,%d lambdified.", i, j)
+        return fourier_entry
+
+    def fourier_transform(self, 
+                          z: float | sp.Basic, z_prime: float | sp.Basic,
+                          vals: dict,
+                          z_diff_sign: int = None,
+                          solve_for: int = None,
+                          lambdified: bool = True):
+        log.info("Fourier transformation of G(k) to G(z.z') started.")
         rows, cols = self.I.shape
         for i in range (rows):
             for j in range (cols):
-                ## b) Cancelling common divisors in A_ij to avoid pole doubling:
-                Pnum, Pdenom, A_ij = self._cancel_common_divisors(A[i][j], k_var)
-                ## c) Lambdifying numerator and denominator if A_ij:
-                num_poly_dc, denom_poly_dc = self.numerator_denominator_poly(A_ij,i,j,solve_for) # two Poly dataclasses
-                num_compiled = self._compile_polynomials(poly=num_poly_dc) # PolyCompiled dataclass
-                args_num = num_compiled.args_from_dict(vals)
-                denom_compiled = self._compile_polynomials(poly=denom_poly_dc) # PolyCompiled dataclass
-                args_denom = denom_compiled.args_from_dict(vals)
-                ## d) Cancelling zeros of A_ij from det_poles:
-                for r in det_poles.keys():
-                    m = det_poles[r]
-                    value = num_compiled.P(r,*args_num)
-                ## c) Pole selection in A_ij:
-                denom_poles = self.poly_poles(denom_poly_dc, vals, halfplane)
-
-                #entry = self.fourier_entry()
+                entry = self.fourier_entry(i,j,z,z_prime,vals,solve_for,z_diff_sign,lambdified)
+        log.info("Matrix G(z,z') was successfully computed.")
 
     def compute_rspace_greens_symbolic_1d_along_last_dim(self,
                                                          z: float | sp.Basic,
@@ -1337,11 +1373,12 @@ class GreensFunctionCalculator:
         numerator multiplicity m_num at r by derivative counting and return the
         updated multiplicity max(m_den - m_num, 0). Remove entries that cancel.
 
-        Returns the SAME container type as provided:
+        Returns:
         - dict in  -> dict out   {root: updated_mult}
-        - list/iterable in -> list of (root, updated_mult)
         """
         # 0) Sanitize input
+        if not roots:
+            return{}
         if isinstance(numerator, Poly):
             poly = numerator.poly # sp.Poly object
             var = numerator.var
