@@ -25,7 +25,7 @@ __all__ = ["GreensFunctionCalculator"]
 import numpy as np
 import sympy as sp
 from sympy import pprint, PolynomialError, ConditionSet
-import mpmath
+import mpmath as mp
 from typing import Callable, Union, Sequence, Optional, Tuple, List
 from dataclasses import dataclass
 from utils import invert_matrix, sanitize_vector, sanitize_matrix
@@ -64,12 +64,12 @@ class PolyCompiled:
     params: Tuple[sp.Symbol, ...]
     backend: str
     prec: int # precision hint for the "mpmath" backend
-    even: bool
+    #even: bool
     P: callable
-    Pprime: callable
-    u: Optional[sp.Symbol] = None
-    Q: Optional[callable] = None
-    Qprime: Optional[callable] = None
+    #Pprime: callable
+    #u: Optional[sp.Symbol] = None
+    #Q: Optional[callable] = None
+    #Qprime: Optional[callable] = None
 
     def args_from_dict(self, vals: dict) -> Tuple:
         """Map a dict of parameter values to the fixed positional order."""
@@ -1279,11 +1279,11 @@ class GreensFunctionCalculator:
             k = poly_dc.var
             P = poly_dc.poly # sp.Poly object now
             deg = poly_dc.degree
-            even = poly_dc.even
+            #even = poly_dc.even
             params = poly_dc.free_params
-            if even:
-                u = poly_dc.u # squared variable
-                u_poly = poly_dc.u_poly # reduced polynomial for u, sp.Poly object
+            #if even:
+            #    u = poly_dc.u # squared variable
+            #    u_poly = poly_dc.u_poly # reduced polynomial for u, sp.Poly object
         elif var is None:
             raise ValueError("No variable provided. If poly is not a Poly dataclass, 'var' needs to be provided.")
         elif isinstance(poly, Union[sp.Expr, sp.Basic]):
@@ -1294,37 +1294,113 @@ class GreensFunctionCalculator:
             deg, even, params, u, u_poly = self._gather_poly_metadata(poly, k)
             P = poly # consistent naming between cases
 
-        # Try even reduction
-        if even:
-            assert u is not None, "for an even polynomial, a squared variable should have been generated."
-            Q = u_poly
-            assert Q.has(u), "Q should depend on variable u."
-            dQ_du = Q.diff(u) # still sp.Poly 
-            dP_dk = sp.cancel(2 * k * dQ_du.subs({u: k**2}))
-        else:
-            dQ_du = None
-            dP_dk = P.diff(k)
+        ## Try even reduction
+        #if even:
+        #    assert u is not None, "for an even polynomial, a squared variable should have been generated."
+        #    Q = u_poly
+        #    assert Q.has(u), "Q should depend on variable u."
+        #    dQ_du = Q.diff(u) # still sp.Poly 
+        #    dP_dk = sp.cancel(2 * k * dQ_du.subs({u: k**2}))
+        #else:
+        #    dQ_du = None
+        #    dP_dk = P.diff(k)
 
         # Lambdify P and P'
         P = sp.lambdify((k, *params), P, modules=modules)
-        dP_dk = sp.lambdify((k, *params), dP_dk, modules=modules)
-        if Q is not None:
-            Q = sp.lambdify((u, *params), Q, modules=modules)
-            dQ_du = sp.lambdify((u, *params), dQ_du, modules=modules)
+        #dP_dk = sp.lambdify((k, *params), dP_dk, modules=modules)
+        #if Q is not None:
+        #    Q = sp.lambdify((u, *params), Q, modules=modules)
+        #    dQ_du = sp.lambdify((u, *params), dQ_du, modules=modules)
 
         return PolyCompiled(
             var=k,
             params=params,
             backend=backend,
             prec=prec,
-            even=even,
+            #even=even,
             P=P,
-            Pprime=dP_dk,
-            u=u,
-            Q=Q,
-            Qprime=dQ_du,
+            #Pprime=dP_dk,
+            #u=u,
+            #Q=Q,
+            #Qprime=dQ_du,
         )
 
+    def _cancel_poles_by_numerator(self, numerator: Poly | sp.Poly, roots: dict, label: str, vals: dict, 
+                                   var: sp.Symbol = None, 
+                                   *,
+                                   prec: int = 80,            # working precision for numeric tests
+                                   atol: float = 1e-28,       # absolute tolerance
+                                   rtol: float = 1e-12        # relative tolerance (scale-aware)
+                                   ):
+        """
+        For each candidate pole r with denominator multiplicity m_den, compute the
+        numerator multiplicity m_num at r by derivative counting and return the
+        updated multiplicity max(m_den - m_num, 0). Remove entries that cancel.
+
+        Returns the SAME container type as provided:
+        - dict in  -> dict out   {root: updated_mult}
+        - list/iterable in -> list of (root, updated_mult)
+        """
+        # 0) Sanitize input
+        if isinstance(numerator, Poly):
+            poly = numerator.poly # sp.Poly object
+            var = numerator.var
+        elif isinstance(numerator, sp.Poly):
+            if var is None:
+                raise ValueError("Variable input needed, if poly is not a Poly dataclass object.")
+            poly = numerator
+        else:
+            raise TypeError(f"numerator needs to be a Poly dataclass object or sp.Poly. Got {type(numerator)}.")
+
+        # 1) Maximum multiplicity for maximum derivative order needed:
+        max_needed = max((int(m) for m in roots.values()), default=0)
+        if max_needed < 1:
+            warnings.warn(f"Roots dict '{label}' is empty.")
+            return {} 
+
+        # 2) Build and compile derivatives 0..max_needed and lambdify once (mpmath backend):
+        num_compiled = self._compile_polynomials(numerator, var=var) # 0th order compilation
+        args_num = num_compiled.args_from_dict(vals) # arguments needed for numerical evaluation
+        derivs = [poly.diff(var, n) for n in range(0, max_needed+1)] # collects all derivatives needed as sp.Poly object, incl. 0th order
+        derivs_compiled = [self._compile_polynomials(deriv, var=var) for deriv in derivs]  # f^(0), f^(1), ..., f^(max_needed)
+
+        # helper: robust zero test for order j using next derivative as scale
+        def vanishes_at(diff_order: int, root: sp.Symbol) -> bool:
+            funcs = derivs_compiled
+            order = diff_order
+            f = funcs[order] # lambdified function requiring args input and var
+            with mp.workdps(prec):
+                val = f(root, *args_num) 
+                # Use next derivative magnitude as local scale (if available)
+                if order + 1 < len(funcs):
+                    val_scale = funcs[order + 1](root, *args_num)
+                    scale = abs(val_scale) + 1
+                else:
+                    scale = 1
+                thr = max(atol, rtol * scale)
+                return abs(val) <= thr
+
+        # --- process each root ---
+        updated_roots = {}
+        with mp.workdps(prec):
+            for r, m_den in roots.items():
+                m_den = int(m_den)
+                m_num = 0
+                # Count how many derivatives vanish at r (up to m_den is enough)
+                for j in range(m_den):
+                    if vanishes_at(j, r):
+                        m_num += 1
+                        if m_num >= m_den:  # can't reduce below zero anyway
+                            break
+                    else:
+                        break
+
+                m_eff = max(m_den - m_num, 0)
+                if m_eff > 0:
+                    updated_roots[r] = m_eff
+                # else: fully cancelled → omit
+        return updated_roots
+        
     def _determinant(self, matrix: MatrixLike) -> sp.Basic | complex:
         """
         Compute the determinant of a matrix, symbolic or numeric.
@@ -1426,7 +1502,6 @@ class GreensFunctionCalculator:
         except FunctionTimedOut:
             raise RuntimeError(f"All attempts at root solving for {poly_label} exceeded {TIMEOUT_GATE} seconds. Investigate.")
         
-
     def _factorize_poly_and_find_roots(self, poly, variable):
         constants, factors = sp.factor_list(poly.as_expr())
         log.debug("Factorization of polynomial successful. There are %d factors.", len(factors))
