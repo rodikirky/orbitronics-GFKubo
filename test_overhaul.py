@@ -33,3 +33,10 @@ system3D = OrbitronicHamiltonianSystem(mass=mass,
 def hamiltonian(momentum):
     H_k = system3D.get_hamiltonian(momentum)
     return H_k
+calc = GreensFunctionCalculator(
+    hamiltonian=hamiltonian,
+    retarded=True,
+    dimension=3,)
+
+# Testing all methods individually
+G_inv = calc.greens_inverse() # works

@@ -161,7 +161,7 @@ class GreensFunctionCalculator:
         
         # band size, e.g., 2 for spin-1/2 systems
         self.N = int(self.H_k.shape[0])
-        self.identity = sp.eye(self.N)
+        self.I = sp.eye(self.N)
 
         # Symbolic parameters:    
         self.omega = sp.symbols("omega", real=True) # energy level
@@ -255,7 +255,7 @@ class GreensFunctionCalculator:
             H_k = self.H(k_for_H)  # Hamiltonian at momentum k
         log.debug("Computing G^{-1}(k) with: momentum=%s", momentum)
 
-        imaginary_unit = sp.I if self.symbolic else 1j
+        imaginary_unit = sp.I
         G_inv = (self.omega + self.q * self.eta *
                  imaginary_unit) * self.I - H_k
         log.debug("Built G^{-1}(k) = (ω %s iη)I - H(k)", "+" if self.q==1 else "-")
