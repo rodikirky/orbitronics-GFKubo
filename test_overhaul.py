@@ -82,6 +82,9 @@ vals = {
 #G_inv = calc.greens_inverse() # works
 #print(G_inv)
 #adj_G_inv = calc.adjugate_greens_inverse()
-G_k = calc.kspace_greens_function()
-with open(Path("results") / "G_k_novals.pkl", "wb") as f:
-    pickle.dump(G_k, f)
+#G_k = calc.kspace_greens_function()
+#A_00 = adj_G_inv[0,0]
+#num_poly_dc, denom_poly_dc = calc.numerator_denominator_poly(A_ij=A_00, i=0, j=0)
+det = calc.determinant_poly()
+with open(Path("results") / "det_novals.pkl", "wb") as f:
+    pickle.dump(det, f)
