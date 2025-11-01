@@ -88,7 +88,7 @@ NUM_TOL = 1e-8 # numerical tolerance for equality checks
 DIGITS = 8
 INFINITESIMAL = 1e-6  # default infinitesimal if none provided
 
-TIMEOUT_GATE = 12.0 # seconds
+TIMEOUT_GATE = 20.0 # seconds
 # endregion
 
 class GreensFunctionCalculator:
@@ -289,14 +289,21 @@ class GreensFunctionCalculator:
             If called in numeric mode without a specific momentum value.
         """
         G_inv = self.greens_inverse(momentum)
-        G_k = invert_matrix(G_inv, symbolic=True)
-        log.info("G(k) computed successfully.") 
-        log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")
-        if vals is not None:
-            G_k_eval = G_k.subs(vals)
-            log.debug("Returning G(k) evaluated at the values provided.")
-            log.debug(f"Free symbols remaining: {G_k_eval.free_symbols}")
-            return sp.simplify(G_k_eval)     
+        vals = {} if vals is None else vals
+        try:
+            G_k = func_timeout(TIMEOUT_GATE, invert_matrix, args=(G_inv,), kwargs={'symbolic': True})
+            log.info("G(k) computed successfully in fully symbolic form.") 
+            log.debug("Free symbols in G(k): %s", G_k.free_symbols)
+        except FunctionTimedOut:
+            warnings.warn("Fully symbolic k-space Green's function could not be computed. Provided values are used to reduce the complexity.")
+            G_inv_eval = G_inv.subs(vals)
+            log.debug("Free symbols remaining in G_inv: %s.", G_inv_eval.free_symbols)
+            try:
+                G_k = func_timeout(TIMEOUT_GATE, invert_matrix, args=(G_inv_eval,), kwargs={'symbolic': True})
+                log.info("G(k) computed successfully after substitution with the numeric values provided.") 
+            except FunctionTimedOut:
+                raise RuntimeError("Insufficient values provided. G(k) cannot be computed in reasonable time.")
+        log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")    
         return G_k
     
     def adjugate_greens_inverse(self, momentum: ArrayLike | None = None, vals: dict = None) -> MatrixLike:

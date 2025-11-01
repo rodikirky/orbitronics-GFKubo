@@ -51,21 +51,20 @@ vals = {
 
 greenscalculator = GreensFunctionCalculator(
     hamiltonian=hamiltonian,
-    identity=I,
-    symbolic=symbolic_mode,
-    energy_level=omega,
-    broadening=eta,
+    #identity=I,
+    #symbolic=symbolic_mode,
+    #energy_level=omega,
+    #broadening=eta,
     retarded=True,
     dimension=3)
 
-#G_inv = greenscalculator.get_greens_inverse()
-#G_inv = G_inv.subs(vals) # substituted the given values
-#print("G^{-1}(k,ω):", G_inv)
-#G_inv_num = G_inv.subs(vals)
+G_inv = greenscalculator.greens_inverse()
+G_inv_eval = G_inv.subs(vals) # substituted the given values
+print("G^{-1}(k,ω) evaluated:", G_inv_eval)
 #print("G^{-1}(k,ω) after substitution:", G_inv_num)
 #print_symbolic_matrix(G_inv, name="G^{-1}(k,ω)")
 #print("Type of G_inv before sanitization:", type(G_inv))
-#G_k = G_inv.inv(method='LU') if symbolic_mode else np.linalg.inv(G_inv) # the method choice was the game changer
+G_k = G_inv_eval.inv(method='LU') # the method choice was the game changer
 #print_symbolic_matrix(G_k, name="G(k,ω)")
 #G_k = invert_matrix(G_inv, symbolic=symbolic_mode)
 #G_k = greenscalculator.compute_kspace_greens_function() 
@@ -78,13 +77,13 @@ greenscalculator = GreensFunctionCalculator(
 #det = sp.cancel(greenscalculator._determinant(G_inv))
 #print("Free symbols in det(G_inv):", free_symbols)
 
-z = sp.symbols("z", real=True)
-z_prime = sp.symbols("z'", real=True)
-G_z = greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z=z, z_prime=z_prime, z_diff_sign=1, full_matrix=False, vals=vals)
+#z = sp.symbols("z", real=True)
+#z_prime = sp.symbols("z'", real=True)
+#G_z = greenscalculator.compute_rspace_greens_symbolic_1d_along_last_dim(z=z, z_prime=z_prime, z_diff_sign=1, full_matrix=False, vals=vals)#
 
-# Saving results
-out = Path("results")
-out.mkdir(exist_ok=True)
+## Saving results
+#out = Path("results")
+#out.mkdir(exist_ok=True)
 #with (out/"toy_multi_roots.json").open("w", encoding="utf-8") as f:
 #    json.dump(to_jsonable(roots), f, indent=2, ensure_ascii=False)
 #with (out/"toy_multi_det.pkl").open("wb") as f:
