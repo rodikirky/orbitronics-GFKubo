@@ -389,7 +389,7 @@ class GreensFunctionCalculator:
         )
         if den_poly is None:
             log.debug("Returning PolyData dataclass for numerator and None for denominator.")
-            assert num_poly_data.poly == sp.Poly(A_ij,num_poly_data.var,domain=sp.EX), "Expected num_poly to equal all of A_ij, if denom_poly is None."
+            assert num_poly_data.poly == sp.Poly(A_ij,num_poly_data.var,domain=sp.EX), "Expected num_poly to eqfual all of A_{i}{j}, if denom_poly is None."
             return  num_poly_data, None
         # Denominator:
         den_deg, den_even, den_free_params, den_u_sym, den_Q = self._gather_poly_metadata(den_poly, k_var)
@@ -460,7 +460,7 @@ class GreensFunctionCalculator:
     # endregion
 
     # region Poles
-    def conditional_poles(self, include_adjugate: bool = True, include_determinant: bool = True, solve_for: int = None, case_assumptions: list = None) -> dict[str: ConditionSet]:
+    def conditional_poles(self, include_adjugate: bool = True, include_determinant: bool = True, solve_for: int = None) -> dict[str: ConditionSet]:
         '''
         Collects all poles contributing to the residue sum of the Fourier transform as Sympy ConditionSets so as to not freeze the program
         with heavy simplification of symbolic radicals. The caller can do this separately using these solution sets.
@@ -485,28 +485,26 @@ class GreensFunctionCalculator:
         ValueError
             In numeric mode, i.e. if symbolic=False.
         '''
-        log.debug("Starting conditional pole computation.")
+        log.info("Starting conditional pole computation.")
         poles = {}
         if include_adjugate:
             A = self.adjugate_greens_inverse()
             rows, cols = A.shape
             for i in range(rows):
                 for j in range(cols):
+                    A_ij = A[i,j]
                     # Skip trivially zero entries early
-                    if A[i, j] == 0:
+                    if A_ij == 0:
                         continue
-                    _, den_dc = self.numerator_denominator_poly(A,i,j,solve_for=solve_for)
+                    _, den_dc = self.numerator_denominator_poly(A_ij,i,j,solve_for=solve_for)
                     if den_dc == None:
                         continue
                     pole_set = self._conditionset_for_Poly(den_dc)
-                    poles[f"den(A_{i}{j})=0: ", pole_set]
-                    log.debug(f"Entry A_{i}{j} has a pole.")
+                    log.debug("Entry A_%d%d has pole(s).", i, j)
         if include_determinant:
             det_dc = self.determinant_poly(solve_for=solve_for)
-            solve_for = self._clean_solve_for(solve_for, self.d)
-            k_var = self.k_symbols[solve_for]
+            k_var = det_dc.var
             pole_set = self._conditionset_for_Poly(det_dc)
-            poles[f"det(G_inv({k_var}))=0: ", pole_set]
             log.debug("Determinant poles successfully conditioned.")
         elif not include_adjugate:
             warnings.warn("No poles were included; returning empty dict. Enable include_adjugate or include_determinant.")
@@ -535,11 +533,13 @@ class GreensFunctionCalculator:
             solve_for = self._clean_solve_for(solve_for, dimension = self.d)
             k_var = self.k_symbols[solve_for]
             params = expr.free_symbols - {k_var}
-        return tuple(sorted(params, key=sp.default_sort_key))
+        params_sorted = tuple(sorted(params, key=sp.default_sort_key))
+        log.info("Free parameters sorted: %s", params_sorted)
+        return params_sorted
     
     def poly_poles(self,  poly: PolyData, vals: dict, halfplane: str = None) -> dict[Union[float, sp.Basic]: Union[int, sp.Basic]]:
         log.debug("Starting pole computation for det(G_inv).")
-
+        log.debug("Values provided: %s", vals)
         # 1) Unpacking poly dataclass
         poly_dc = poly # dataclass that needs to be unpacked
         label = poly.label # label for comprehensive logging
@@ -566,8 +566,7 @@ class GreensFunctionCalculator:
         if leftover & required:
              raise ValueError(
                  "Insufficient substsitution values provided in 'vals'"
-                 f"det(G⁻¹) still contains unresolved symbols: {leftover & required}.", 
-                 stacklevel=2)
+                 f"det(G⁻¹) still contains unresolved symbols: {leftover & required}.")
         
         # 3) Root solving
         ### First, try root solving for the reduced polynomial:
@@ -580,7 +579,7 @@ class GreensFunctionCalculator:
             Q_eval = Q.subs(vals)
             leftover_Q = Q_eval.free_symbols - {u}
             assert not leftover_Q, f"Reduced polynomial should have no unknown parameters after eval. Found: {leftover_Q}"
-            u_roots = self._poly_roots(Q_eval, u, halfplane=halfplane) # includes halfplane selection
+            u_roots = self._poly_roots(Q_eval, u, poly_label=f"reduced {label}", halfplane=halfplane) # includes halfplane selection
             roots = {}
             for r in u_roots.keys():
                 mult = u_roots[r]
@@ -591,7 +590,7 @@ class GreensFunctionCalculator:
         else:
             log.debug("Even reduction not possible.")
             log.debug("Computing roots of the polynomial P(%s) without even reduction.", k_var)
-            roots = self._poly_roots(P_eval, k_var, halfplane=halfplane) # includes halfplane selection
+            roots = self._poly_roots(P_eval, k_var, poly_label=label, halfplane=halfplane) # includes halfplane selection
         log.debug("Found %d unique roots.", len(roots))
         log.info("Root computation for %s=0 successful.", label)
         return roots # Roots of denominators/determinants are poles of the k-space Green's function
@@ -1136,15 +1135,15 @@ class GreensFunctionCalculator:
         if poly.degree() <= 0:
             warnings.warn(f"{poly_label} constant in {var}. Should have triggered earlier. Returning empty dict.")
             return {}
-        # First attempt: exact root solving directly with poly.roots()
+        # First attempt: exact root solving directly with sp.roots()
         try:
-            log.debug("Attempting exact root solving with poly.roots() for %s.", poly_label)
-            roots = func_timeout(TIMEOUT_GATE, poly.roots)
+            log.debug("Attempting exact root solving with sp.roots() for %s.", poly_label)
+            roots = func_timeout(TIMEOUT_GATE, lambda: sp.roots(poly.as_expr(), var))
             log.debug("Direct root solving successful for %s.", poly_label)
             root_selection = self._halfplane_selection(roots, var, poly_label=poly_label, halfplane=halfplane)
             return root_selection
         except FunctionTimedOut:
-            warnings.warn(f"Exact poly.roots() solving exceeded {TIMEOUT_GATE} seconds for {poly_label}")
+            warnings.warn(f"Exact sp.roots() solving exceeded {TIMEOUT_GATE} seconds for {poly_label}")
         # Second attempt: exact root solving indirectly via factorization
         try: 
             log.debug("Attempting root solving with factorization for %s.", poly_label)
@@ -1153,7 +1152,7 @@ class GreensFunctionCalculator:
             log.debug("Square-free decomposition of poly successful for %s.", poly_label)
             roots = {}
             for f, mult in factors:
-                f_roots = func_timeout(TIMEOUT_GATE,f.roots)
+                f_roots = func_timeout(TIMEOUT_GATE,lambda: sp.roots(f.as_expr(), var))
                 for r in f_roots.keys():
                     m = f_roots[r]*mult # update multiplicity with decomposition factor
                     roots[r] = roots.get(r, 0) + m

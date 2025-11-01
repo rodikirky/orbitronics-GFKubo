@@ -69,22 +69,40 @@ calc = GreensFunctionCalculator(
     retarded=True,
     dimension=3,)
 
-vals = {
-    #omega: 0.8, 
-    #gamma: 0.3, 
-    #J: 1.0,
-    mag1: 0.0, mag2: 0.0, #mag3: 3.0,
-    mass: 1.0, 
-    #eta: 1e-6,      # small positive η for retarded GF
-    #k_x: 0.1, k_y: -0.2
-}
-# Testing all methods individually
-#G_inv = calc.greens_inverse() # works
+# TESTING all methods individually:
+
+G_inv = calc.greens_inverse() # works
 #print(G_inv)
 #adj_G_inv = calc.adjugate_greens_inverse()
 #G_k = calc.kspace_greens_function()
 #A_00 = adj_G_inv[0,0]
 #num_poly_dc, denom_poly_dc = calc.numerator_denominator_poly(A_ij=A_00, i=0, j=0)
 det = calc.determinant_poly()
-with open(Path("results") / "det_novals.pkl", "wb") as f:
-    pickle.dump(det, f)
+#poles = calc.conditional_poles()
+REQUIRED = calc.required_parameters(G_inv)
+
+J = REQUIRED[0]
+mag1 = REQUIRED[1]
+mag2 = REQUIRED[2]
+mag3 = REQUIRED[3]
+eta = REQUIRED[4]
+gamma = REQUIRED[5]
+k_x = REQUIRED[6]
+k_y = REQUIRED[7]
+mass = REQUIRED[8]
+omega = REQUIRED[9]
+
+vals = {
+    omega: 1.0, 
+    gamma: 0.1, 
+    J: 1.0,
+    mag1: 0.0, mag2: 0.0, mag3: 3.0,
+    mass: 1.0, 
+    eta: 1e-6,      # small positive η for retarded GF
+    k_x: 0.1, k_y: -0.2
+}
+assert len(REQUIRED) == len(vals)
+#det_poles = calc.poly_poles(det,vals)
+
+#with open(Path("results") / "det_poles.pkl", "wb") as f:
+#    pickle.dump(det_poles, f)
