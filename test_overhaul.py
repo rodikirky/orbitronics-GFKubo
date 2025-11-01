@@ -79,7 +79,9 @@ vals = {
     #k_x: 0.1, k_y: -0.2
 }
 # Testing all methods individually
-G_inv = calc.greens_inverse() # works
-G_k = calc.kspace_greens_function(vals=vals)
-#with open(Path("results") / "G_k_novals.pkl", "wb") as f:
-#    pickle.dump(G_k, f)
+#G_inv = calc.greens_inverse() # works
+#print(G_inv)
+#adj_G_inv = calc.adjugate_greens_inverse()
+G_k = calc.kspace_greens_function()
+with open(Path("results") / "G_k_novals.pkl", "wb") as f:
+    pickle.dump(G_k, f)

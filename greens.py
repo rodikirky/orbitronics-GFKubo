@@ -266,6 +266,30 @@ class GreensFunctionCalculator:
             return sp.simplify(G_inv_eval)
         return G_inv
     
+    def adjugate_greens_inverse(self, momentum: ArrayLike | None = None, vals: dict = None) -> MatrixLike:
+        '''
+        Computes the adjugate of the matrix G_inv.
+
+        Parameters
+        ----------
+        momentum: ArrayLike or None
+            value at which the Hamiltonian is evaluated
+            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
+
+        Returns
+        ---------
+        adj(G_inv(k)): MatrixLike
+            Adjugate in momentum space
+        '''
+        G_inv = self.greens_inverse(momentum)
+        adjugate = G_inv.adjugate()
+        if vals is not None:
+            adjugate_eval = adjugate.subs(vals)
+            log.debug("Returning adjugate matrix evaluated at the values provided.")
+            log.debug(f"Free symbols remaining: {adjugate_eval.free_symbols}")
+            return adjugate_eval
+        return adjugate
+    
     def kspace_greens_function(self, momentum: ArrayLike | None = None, vals: dict = None) -> MatrixLike:
         """
         Computes the Green's function for a single-particle Hamiltonian in momentum space by inverting
@@ -288,48 +312,15 @@ class GreensFunctionCalculator:
         ValueError
             If called in numeric mode without a specific momentum value.
         """
-        G_inv = self.greens_inverse(momentum)
         vals = {} if vals is None else vals
-        try:
-            G_k = func_timeout(TIMEOUT_GATE, invert_matrix, args=(G_inv,), kwargs={'symbolic': True})
-            log.info("G(k) computed successfully in fully symbolic form.") 
-            log.debug("Free symbols in G(k): %s", G_k.free_symbols)
-        except FunctionTimedOut:
-            warnings.warn("Fully symbolic k-space Green's function could not be computed. Provided values are used to reduce the complexity.")
-            G_inv_eval = G_inv.subs(vals)
-            log.debug("Free symbols remaining in G_inv: %s.", G_inv_eval.free_symbols)
-            try:
-                G_k = func_timeout(TIMEOUT_GATE, invert_matrix, args=(G_inv_eval,), kwargs={'symbolic': True})
-                log.info("G(k) computed successfully after substitution with the numeric values provided.") 
-            except FunctionTimedOut:
-                raise RuntimeError("Insufficient values provided. G(k) cannot be computed in reasonable time.")
-        log.debug("G(k): shape=%s, backend=%s", getattr(G_k,"shape",None), "sym" if self.symbolic else "num")    
-        return G_k
-    
-    def adjugate_greens_inverse(self, momentum: ArrayLike | None = None, vals: dict = None) -> MatrixLike:
-        '''
-        Computes the adjugate of the matrix G_inv.
-
-        Parameters
-        ----------
-        momentum: ArrayLike or None
-            value at which the Hamiltonian is evaluated
-            If None, defaults to k symbols in symbolic mode and raises a ValueError in numeric mode.
-
-        Returns
-        ---------
-        adj(G_inv(k)): MatrixLike
-            Adjugate in momentum space
-        '''
         G_inv = self.greens_inverse(momentum)
         det = self._determinant(G_inv)
-        adjugate = G_inv.adjugate() if self.symbolic else det*np.linalg.inv(G_inv)
-        if vals is not None:
-            adjugate_eval = adjugate.subs(vals)
-            log.debug("Returning adjugate matrix evaluated at the values provided.")
-            log.debug(f"Free symbols remaining: {adjugate_eval.free_symbols}")
-            return adjugate_eval
-        return adjugate
+        det = det.subs(vals)
+        A = self.adjugate_greens_inverse(momentum, vals)
+        G_k = A / det
+        log.debug("G(k): shape=%s", getattr(G_k,"shape",None))  
+        log.debug("Free symbols in G(k): %s", G_k.free_symbols)  
+        return G_k
     
     def numerator_denominator_poly(self, ratio: sp.Basic, i: int, j: int, solve_for: int = None) -> tuple[Poly, Poly]: 
         '''
@@ -1135,11 +1126,7 @@ class GreensFunctionCalculator:
         det : sympy.Basic or complex
             The determinant of the matrix.
         """
-        A = sanitize_matrix(matrix, symbolic=self.symbolic, expected_size=self.N)
-        if not self.symbolic:
-            det_A = np.linalg.slogdet(A)
-            log.debug("Determinant computed numerically with NumPy.")
-            return det_A
+        A = sanitize_matrix(matrix, symbolic=True, expected_size=self.N)
         det_A = A.berkowitz_det()
         log.debug("Determinant computed symbolically with Berkowitz algorithm")
         return det_A
