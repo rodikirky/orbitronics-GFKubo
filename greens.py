@@ -683,7 +683,7 @@ class GreensFunctionCalculator:
                           vals: dict,
                           solve_for: int = None,
                           z_diff_sign: int = None,
-                          lambdified: bool = True):
+                          lambdified: bool = False):
         log.info("Fourier transformation of G(k) to G(z.z') started.")
         rows, cols = self.I.shape
         G_zzp = sp.MutableDenseMatrix.zeros(rows, cols)
@@ -703,7 +703,7 @@ class GreensFunctionCalculator:
                                z: float | sp.Basic, z_prime: float | sp.Basic,
                                vals: dict,
                                z_diff_sign: int = None):
-        G_r = self.fourier_transform(z, z_prime, vals, z_diff_sign) 
+        G_r = self.fourier_transform(z, z_prime, vals, z_diff_sign, lambdified=False) 
         return G_r
     
     # endregion
