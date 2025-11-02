@@ -605,7 +605,7 @@ class GreensFunctionCalculator:
                       solve_for: int = None,
                       z_diff_sign: int = None,
                       lambdified: bool = True):
-        log.debug("Computing matrix entry G(z.z')_%d%d.", i, j)
+        log.info("Computing matrix entry G(z.z')_%d%d.", i+1, j+1)
         # 1) Halfplane choice:
         halfplane = self._halfplane_choice(z, z_prime, z_diff_sign=z_diff_sign)
         if halfplane == "coincidence":
@@ -637,11 +637,11 @@ class GreensFunctionCalculator:
                 m = denom_poles_clean[p]
                 all_clean_poles[p] = all_clean_poles.get(p, default=0) + m
         else:
-            log.debug("There are no poles in the adjugate entry %d%d. Only the zeros of the determinant contribute.",i,j)
+            log.debug("There are no poles in the adjugate entry %d%d. Only the zeros of the determinant contribute.", i+1, j+1)
         if not all_clean_poles:
-            log.debug("No poles found for entry G(z.z')_%d%d. Fourier transform vanishes. Returning 0.")
+            log.debug("No poles found for entry G(z.z')_%d%d. Fourier transform vanishes. Returning 0.", i+1, j+1)
             return 0
-        log.debug("There are %d true poles in entry (A/det)_%d%d to contribute to the residue sum.", len(all_clean_poles), i, j)
+        log.debug("There are %d true poles in entry (A/det)_%d%d to contribute to the residue sum.", len(all_clean_poles), i+1, j+1)
         
         # 3) Residue sum
         # Short-circuit for no poles present:
@@ -669,12 +669,13 @@ class GreensFunctionCalculator:
         
         # 4) Residue Theorem for the Fourier integral
         fourier_entry = sp.I * residue_sum  # factor of i from residue theorem
+        log.info("Entry G(z,z')_%d%d successfully computed.", i+1, j+1)
 
         # Optional: Lamdification
         if lambdified:
             expr = fourier_entry.as_expr()
             fourier_entry = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
-            log.debug("Entry G(z,z')_%d,%d lambdified.", i, j)
+            log.debug("Entry G(z,z')_%d%d lambdified.", i+1, j+1)
         return fourier_entry
 
     def fourier_transform(self, 
@@ -688,10 +689,14 @@ class GreensFunctionCalculator:
         G_zzp = sp.MutableDenseMatrix.zeros(rows, cols)
         for i in range (rows):
             for j in range (cols):
-                entry = self.fourier_entry(i,j,z,z_prime,vals,solve_for,z_diff_sign,lambdified)
+                entry = self.fourier_entry(i,j,z,z_prime,vals,solve_for,z_diff_sign,lambdified=False)
                 G_zzp[i,j] = entry
         log.info("Matrix G(z,z') was successfully computed.")
         G_zzp = G_zzp.as_immutable() # Matrix cannot be changed after this point
+        if lambdified:
+            expr = G_zzp.as_expr()
+            G_zzp = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
+            log.debug("G(z,z') lambdified as full matrix.")
         return G_zzp
     
     def rspace_greens_function_last_dim(self, 

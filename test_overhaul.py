@@ -106,6 +106,6 @@ assert len(REQUIRED) == len(vals)
 z = sp.symbols("z", real=True, positive=True)
 z_prime = sp.symbols("z'", real=True, positive=False)
 #G_00 = calc.fourier_entry(0, 0, z, z_prime, vals, lambdified=False)
-Gz_fullmatrix = calc.fourier_transform(z, z_prime, vals)
+Gz_fullmatrix = calc.fourier_transform(z, z_prime, vals,lambdified=False)
 with open(Path("results") / "Gz.pkl", "wb") as f:
     pickle.dump(Gz_fullmatrix, f)
