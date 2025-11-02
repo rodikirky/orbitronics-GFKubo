@@ -17,7 +17,7 @@ log_path = LOG_DIR / f"run_overhaul_{run_id}.log"   # <-- this is the per-run fi
 
 root = logging.getLogger()
 #root.setLevel(os.getenv("LOG_LEVEL", "INFO"))
-root.setLevel(logging.DEBUG)  # or INFO in production
+root.setLevel(logging.INFO)  # or INFO in production
 
 # clear pre-existing handlers (prevents duplicates in re-runs)
 for h in list(root.handlers):
@@ -25,7 +25,7 @@ for h in list(root.handlers):
 
 # Console
 ch = logging.StreamHandler()
-ch.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 root.addHandler(ch)
 
 # File (rotating)
@@ -103,6 +103,9 @@ vals = {
 }
 assert len(REQUIRED) == len(vals)
 #det_poles = calc.poly_poles(det,vals)
-
-#with open(Path("results") / "det_poles.pkl", "wb") as f:
-#    pickle.dump(det_poles, f)
+z = sp.symbols("z", real=True, positive=True)
+z_prime = sp.symbols("z'", real=True, positive=False)
+#G_00 = calc.fourier_entry(0, 0, z, z_prime, vals, lambdified=False)
+Gz_fullmatrix = calc.fourier_transform(z, z_prime, vals)
+with open(Path("results") / "Gz.pkl", "wb") as f:
+    pickle.dump(Gz_fullmatrix, f)

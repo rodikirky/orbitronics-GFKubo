@@ -602,7 +602,7 @@ class GreensFunctionCalculator:
                       i: int, j: int,
                       z: float | sp.Basic, z_prime: float | sp.Basic,
                       vals: dict,
-                      solve_for: int,
+                      solve_for: int = None,
                       z_diff_sign: int = None,
                       lambdified: bool = True):
         log.debug("Computing matrix entry G(z.z')_%d%d.", i, j)
@@ -612,6 +612,7 @@ class GreensFunctionCalculator:
             raise ValueError("z and z' must not coincide.")
         if halfplane is None:
             raise ValueError("Choose numbers for z, z' or declare z_diff_sign for the halfplane choice.")
+        log.debug("Halfplane chosen for contour integration: %s", halfplane)
         
         # 2) Poly prep
         solve_for = self._clean_solve_for(solve_for, self.d)
@@ -622,29 +623,33 @@ class GreensFunctionCalculator:
         args_det = det_compiled.args_from_dict(vals)
         k_var = det_poly_dc.var
         ## Cancelling common divisors in A_ij to avoid invalid poles:
-        num_poly, denom_poly, A_ij = self._cancel_common_divisors(A[i][j], k_var)
+        num_poly, denom_poly, A_ij = self._cancel_common_divisors(A[i,j], k_var)
         num_poly_dc, denom_poly_dc = self.numerator_denominator_poly(A_ij,i,j,solve_for) # two Poly dataclasses
         
         # 3) Collecting poles and cancelling with numerator:
         det_poles = self.poly_poles(det_poly_dc, vals, halfplane)
         det_poles_clean = self._cancel_poles_by_numerator(num_poly_dc,det_poles,label="det_poles", vals=vals)
-        denom_poles = self.poly_poles(denom_poly_dc, vals, halfplane)
-        denom_poles_clean = self._cancel_poles_by_numerator(num_poly_dc,denom_poles,label=f"denom_poles_{i}{j}", vals=vals)
         all_clean_poles = det_poles_clean
-        for p in denom_poles_clean.keys():
-            m = denom_poles_clean[p]
-            all_clean_poles[p] = all_clean_poles.get(p, default=0) + m
+        if denom_poly_dc:
+            denom_poles = self.poly_poles(denom_poly_dc, vals, halfplane)
+            denom_poles_clean = self._cancel_poles_by_numerator(num_poly_dc,denom_poles,label=f"denom_poles_{i}{j}", vals=vals)
+            for p in denom_poles_clean.keys():
+                m = denom_poles_clean[p]
+                all_clean_poles[p] = all_clean_poles.get(p, default=0) + m
+        else:
+            log.debug("There are no poles in the adjugate entry %d%d. Only the zeros of the determinant contribute.",i,j)
+        if not all_clean_poles:
+            log.debug("No poles found for entry G(z.z')_%d%d. Fourier transform vanishes. Returning 0.")
+            return 0
         log.debug("There are %d true poles in entry (A/det)_%d%d to contribute to the residue sum.", len(all_clean_poles), i, j)
         
         # 3) Residue sum
         # Short-circuit for no poles present:
-        if not all_clean_poles:
-            log.debug("No poles found for entry G(z.z')_%d%d. Fourier transform vanishes. Returning 0.")
-            return 0
         z_diff = z - z_prime
         phase = sp.exp(sp.I * k_var * z_diff)
         residue_sum = 0
-        for n, (k0, m) in enumerate(all_clean_poles):  # pole k0 with their multiplicity m
+        for n, k0 in enumerate(all_clean_poles.keys()):  # pole k0
+            m = all_clean_poles[k0] # multiplicity m
             # Residue formula for pole of order m:
             # Res = 1/(m-1)! * d^{m-1}/dk^{m-1} [ (k-k0)^m * (numerator(k) / denominator(k) * determinant(k))* phi(k)  ] at k=k0   
             fraction = num_poly.subs(vals) / (denom_poly.subs(vals) * det_poly.subs(vals))
@@ -667,7 +672,8 @@ class GreensFunctionCalculator:
 
         # Optional: Lamdification
         if lambdified:
-            fourier_entry = sp.lambdify((z,z_prime), fourier_entry, 'mpmath') # lambdified function of (z,z') for speed and precision
+            expr = fourier_entry.as_expr()
+            fourier_entry = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
             log.debug("Entry G(z,z')_%d,%d lambdified.", i, j)
         return fourier_entry
 
@@ -683,7 +689,7 @@ class GreensFunctionCalculator:
         for i in range (rows):
             for j in range (cols):
                 entry = self.fourier_entry(i,j,z,z_prime,vals,solve_for,z_diff_sign,lambdified)
-                G_zzp[i][j] = entry
+                G_zzp[i,j] = entry
         log.info("Matrix G(z,z') was successfully computed.")
         G_zzp = G_zzp.as_immutable() # Matrix cannot be changed after this point
         return G_zzp
@@ -900,8 +906,8 @@ class GreensFunctionCalculator:
             if im_sign is not None:
                 # Halfplane selection
                 try:
-                    im = func_timeout(TIMEOUT_GATE, sp.im, args=(r))
-                    sgn = func_timeout(TIMEOUT_GATE,sp.sign, args=(im)) 
+                    im = func_timeout(TIMEOUT_GATE, sp.im, args=(r,))
+                    sgn = func_timeout(TIMEOUT_GATE,sp.sign, args=(im,)) 
                     # if this freezes, try an altered version of self._im_sign_of_root:
                     #sgn = self._im_sign_of_root(r, i, n, predicates=predicates, choices=choices) # records ambiguities for symbolic roots
                 except FunctionTimedOut:
@@ -935,7 +941,23 @@ class GreensFunctionCalculator:
             if z_diff_sign > 0: return "upper"
             if z_diff_sign < 0: return "lower"
             raise ValueError(f"Expected z_diff_sign from (1,-1,None). Got {z_diff_sign}.")
+        if z.is_positive and not z_prime.is_positive: return "upper"
+        if not z.is_positive and z_prime.is_positive: return "lower"
         return None
+    
+    @staticmethod
+    def _sympy_to_number(expr: sp.Basic, backend: str = "mpmath", prec: int = 50):
+        if expr.free_symbols:
+            raise ValueError("There are still free symbols remaining after evaluation.")
+        if backend == "mpmath":
+            with mp.workdps(prec):
+                z = complex(expr.evalf(prec))
+                return mp.mpc(z) if z.imag else mp.mpf(z.real)
+        if backend == "numpy":
+            z = complex(expr.evalf())
+            return np.array(z, dtype=complex).item()   # returns a Python scalar of dtype
+        else: 
+            raise ValueError("Choose a backend from 'mpmath' or 'numpy'.")
     
     def _cancel_common_divisors(self, ratio: sp.Basic, var: sp.Symbol) -> tuple[sp.Poly,sp.Poly,sp.Expr]:
         num, den = sp.fraction(ratio)
@@ -987,11 +1009,7 @@ class GreensFunctionCalculator:
             k = poly_dc.var
             P = poly_dc.poly # sp.Poly object now
             deg = poly_dc.degree
-            #even = poly_dc.even
             params = poly_dc.free_params
-            #if even:
-            #    u = poly_dc.u # squared variable
-            #    u_poly = poly_dc.u_poly # reduced polynomial for u, sp.Poly object
         elif var is None:
             raise ValueError("No variable provided. If poly is not a Poly dataclass, 'var' needs to be provided.")
         elif isinstance(poly, Union[sp.Expr, sp.Basic]):
@@ -1002,23 +1020,9 @@ class GreensFunctionCalculator:
             deg, even, params, u, u_poly = self._gather_poly_metadata(poly, k)
             P = poly # consistent naming between cases
 
-        ## Try even reduction
-        #if even:
-        #    assert u is not None, "for an even polynomial, a squared variable should have been generated."
-        #    Q = u_poly
-        #    assert Q.has(u), "Q should depend on variable u."
-        #    dQ_du = Q.diff(u) # still sp.Poly 
-        #    dP_dk = sp.cancel(2 * k * dQ_du.subs({u: k**2}))
-        #else:
-        #    dQ_du = None
-        #    dP_dk = P.diff(k)
-
         # Lambdify P and P'
-        P = sp.lambdify((k, *params), P, modules=modules)
-        #dP_dk = sp.lambdify((k, *params), dP_dk, modules=modules)
-        #if Q is not None:
-        #    Q = sp.lambdify((u, *params), Q, modules=modules)
-        #    dQ_du = sp.lambdify((u, *params), dQ_du, modules=modules)
+        expr = P.as_expr() # sp.lambdify needs sp.Expr objects
+        P = sp.lambdify((k, *params), expr, modules=modules)
 
         return PolyCompiled(
             var=k,
@@ -1032,7 +1036,7 @@ class GreensFunctionCalculator:
             #Q=Q,
             #Qprime=dQ_du,
         )
-
+    
     def _cancel_poles_by_numerator(self, numerator: PolyData | sp.Poly, roots: dict, label: str, vals: dict, 
                                    var: sp.Symbol = None, 
                                    *,
@@ -1068,25 +1072,28 @@ class GreensFunctionCalculator:
             return {} 
 
         # 2) Build and compile derivatives 0..max_needed and lambdify once (mpmath backend):
-        num_compiled = self._compile_polynomials(numerator, var=var) # 0th order compilation
-        args_num = num_compiled.args_from_dict(vals) # arguments needed for numerical evaluation
-        derivs = [poly.diff(var, n) for n in range(0, max_needed+1)] # collects all derivatives needed as sp.Poly object, incl. 0th order
+        derivs = [poly] + [poly.diff((var, k)) for k in range(1, max_needed + 1)] # collects all derivatives needed as sp.Poly object, incl. 0th order
         derivs_compiled = [self._compile_polynomials(deriv, var=var) for deriv in derivs]  # f^(0), f^(1), ..., f^(max_needed)
 
         # helper: robust zero test for order j using next derivative as scale
         def vanishes_at(diff_order: int, root: sp.Symbol) -> bool:
             funcs = derivs_compiled
             order = diff_order
-            f = funcs[order] # lambdified function requiring args input and var
+            f = funcs[order] # PolyCompiled object
+            args_f = f.args_from_dict(vals)
             with mp.workdps(prec):
-                val = f(root, *args_num) 
+                val = f.P(root, *args_f) # lambdified function requiring args input and var
+                val = self._sympy_to_number(val) # transform to Python number
                 # Use next derivative magnitude as local scale (if available)
                 if order + 1 < len(funcs):
-                    val_scale = funcs[order + 1](root, *args_num)
+                    f_prime = funcs[order + 1] # PolyCompiled object
+                    args_fp= f_prime.args_from_dict(vals)
+                    val_scale = f_prime.P(root, *args_fp)
+                    val_scale = self._sympy_to_number(val_scale) # transform to Python number
                     scale = abs(val_scale) + 1
                 else:
                     scale = 1
-                thr = max(atol, rtol * scale)
+                thr = max(float(atol), float(rtol) * float(scale))
                 return abs(val) <= thr
 
         # --- process each root ---
