@@ -569,6 +569,9 @@ class GreensFunctionCalculator:
                  f"det(G⁻¹) still contains unresolved symbols: {leftover & required}.")
         
         # 3) Root solving
+        if halfplane == "coincidence":
+            log.debug("Real space variables coincide. Arbitrary halplane choice; choosing 'upper'.")
+            halfplane = "upper"
         ### First, try root solving for the reduced polynomial:
         if even:
             log.debug("Even reduction succesful.")
@@ -605,14 +608,18 @@ class GreensFunctionCalculator:
                       solve_for: int = None,
                       z_diff_sign: int = None,
                       lambdified: bool = True):
-        log.info("Computing matrix entry G(z.z')_%d%d.", i+1, j+1)
+        log.info("Computing matrix entry G(%s,%s)_%d%d.", z, z_prime, i+1, j+1)
         # 1) Halfplane choice:
         halfplane = self._halfplane_choice(z, z_prime, z_diff_sign=z_diff_sign)
-        if halfplane == "coincidence":
-            raise ValueError("z and z' must not coincide.")
         if halfplane is None:
             raise ValueError("Choose numbers for z, z' or declare z_diff_sign for the halfplane choice.")
-        log.debug("Halfplane chosen for contour integration: %s", halfplane)
+        if halfplane == "coincidence":
+            if z.is_number:
+                log.debug("The real space variables z=z'=%s coincide. Halfplane choice does not matter.")
+            else:
+                log.debug("%s and %s coincide. Halfplane choice does not matter.")
+        else:
+            log.debug("Halfplane chosen for contour integration: %s", halfplane)
         
         # 2) Poly prep
         solve_for = self._clean_solve_for(solve_for, self.d)
@@ -639,14 +646,17 @@ class GreensFunctionCalculator:
         else:
             log.debug("There are no poles in the adjugate entry %d%d. Only the zeros of the determinant contribute.", i+1, j+1)
         if not all_clean_poles:
-            log.debug("No poles found for entry G(z.z')_%d%d. Fourier transform vanishes. Returning 0.", i+1, j+1)
+            log.debug("No poles found for entry G(%s,%s)_%d%d. Fourier transform vanishes. Returning 0.",z, z_prime, i+1, j+1)
             return 0
         log.debug("There are %d true poles in entry (A/det)_%d%d to contribute to the residue sum.", len(all_clean_poles), i+1, j+1)
         
         # 3) Residue sum
         # Short-circuit for no poles present:
-        z_diff = z - z_prime
-        phase = sp.exp(sp.I * k_var * z_diff)
+        if halfplane == "coincidence":
+            phase = sp.Integer(1)
+        else:
+            z_diff = z - z_prime
+            phase = sp.exp(sp.I * k_var * z_diff)
         residue_sum = 0
         for n, k0 in enumerate(all_clean_poles.keys()):  # pole k0
             m = all_clean_poles[k0] # multiplicity m
@@ -661,7 +671,7 @@ class GreensFunctionCalculator:
                 res = sp.cancel(first_order.subs({k_var: k0}))
             else:
                 deriv = sp.cancel(sp.diff(first_order.as_expr(), (k_var, m - 1)))
-                res = sp.cancel(first_order.subs({k_var: k0}) / sp.factorial(m - 1))
+                res = sp.cancel(deriv.subs({k_var: k0}) / sp.factorial(m - 1))
             log.debug("Residue for pole #%d of order %d computed.", n, m)
             residue_sum += res
             contributed_any = True
@@ -669,13 +679,22 @@ class GreensFunctionCalculator:
         
         # 4) Residue Theorem for the Fourier integral
         fourier_entry = sp.I * residue_sum  # factor of i from residue theorem
-        log.info("Entry G(z,z')_%d%d successfully computed.", i+1, j+1)
+        if halfplane == "coincidence":
+            log.info("Coincident entry G(%s,%s)_%d%d successfully computed.", z, z, i+1, j+1)
+        else:
+            log.info("Entry G(%s,%s)_%d%d successfully computed.", z, z_prime, i+1, j+1)
 
         # Optional: Lamdification
         if lambdified:
+            if halfplane == "coincidence":
+                warnings.warn("Lambdification at coincidence point not possible.")
+                return fourier_entry
+            if not fourier_entry.free_symbols:
+                warnings.warn("Lambdification not possible if all symbols have been evaluated.")
+                return fourier_entry
             expr = fourier_entry.as_expr()
             fourier_entry = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
-            log.debug("Entry G(z,z')_%d%d lambdified.", i+1, j+1)
+            log.debug("Entry G(%s,%s)_%d%d lambdified.", z, z_prime, i+1, j+1)
         return fourier_entry
 
     def fourier_transform(self, 
@@ -706,6 +725,11 @@ class GreensFunctionCalculator:
         G_r = self.fourier_transform(z, z_prime, vals, z_diff_sign, lambdified=False) 
         return G_r
     
+    def coincidence_limit(self, vals: dict, solve_for: int = None):
+        log.info("Computing matrix G(0,0) at coincidence z=z'.")
+        G_coincide = self.fourier_transform(sp.Float(0), sp.Float(0), vals, solve_for=solve_for)
+        log.info("Full coincidence matrix G(0,0) successfully computed.")
+        return G_coincide
     # endregion
 
     # region Ambiguity helpers 
@@ -938,6 +962,8 @@ class GreensFunctionCalculator:
         # numeric-only decision; returns +1, -1, 0, or None (unknown)
         if z.is_real is not True or z_prime.is_real is not True:
             raise ValueError("Both z and z′ must be real numbers or real symbols.")
+        if z.is_positive and not z_prime.is_positive: return "upper"
+        if not z.is_positive and z_prime.is_positive: return "lower"
         if z.is_number and z_prime.is_number:
             if z > z_prime:  return "upper"
             if z < z_prime:  return "lower"
@@ -945,9 +971,8 @@ class GreensFunctionCalculator:
         if z_diff_sign is not None: 
             if z_diff_sign > 0: return "upper"
             if z_diff_sign < 0: return "lower"
+            if z_diff_sign == 0: return "coincidence"
             raise ValueError(f"Expected z_diff_sign from (1,-1,None). Got {z_diff_sign}.")
-        if z.is_positive and not z_prime.is_positive: return "upper"
-        if not z.is_positive and z_prime.is_positive: return "lower"
         return None
     
     @staticmethod
