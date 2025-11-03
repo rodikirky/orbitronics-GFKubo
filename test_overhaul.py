@@ -105,9 +105,17 @@ assert len(REQUIRED) == len(vals)
 #det_poles = calc.poly_poles(det,vals)
 z = sp.symbols("z", real=True, positive=True)
 z_prime = sp.symbols("z'", real=True, positive=False)
-#G_00 = calc.fourier_entry(0, 0, z, z_prime, vals, lambdified=False)
-Gz_fullmatrix = calc.fourier_transform(z, z_prime, vals,lambdified=False)
-G_r = calc.rspace_greens_function_last_dim(z, z_prime,vals)
-assert G_r == Gz_fullmatrix
-#with open(Path("results") / "Gz.pkl", "wb") as f:
-#    pickle.dump(Gz_fullmatrix, f)
+Gz_00 = calc.fourier_entry(0, 0, z, z_prime, vals, lambdified=False)
+#Gz_fullmatrix = calc.fourier_transform(z, z_prime, vals,lambdified=False)
+#G_r = calc.rspace_greens_function_last_dim(z, z_prime,vals)
+#assert G_r == Gz_fullmatrix
+#G_coincide = calc.coincidence_limit(vals)
+G_coin_00 = calc.fourier_entry(0, 0, z=sp.Float(0), z_prime=sp.Float(0), vals=vals, lambdified=False)
+Gz_00_coin_limit = Gz_00.subs({z: sp.Float(0), z_prime: sp.Float(0)})
+difference = G_coin_00 - Gz_00_coin_limit
+diff_eval = difference.evalf(10) # numerical evaluation to 10 digits
+print("difference: ", diff_eval)
+with open(Path("results") / "G_coin_00.pkl", "wb") as f:
+    pickle.dump(G_coin_00, f)
+with open(Path("results") / "coin_difference_to_subs.pkl", "wb") as f:
+    pickle.dump(difference, f)
