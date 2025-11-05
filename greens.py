@@ -682,18 +682,6 @@ class GreensFunctionCalculator:
             log.info("Coincident entry G(%s,%s)_%d%d successfully computed.", z, z, i+1, j+1)
         else:
             log.info("Entry G(%s,%s)_%d%d successfully computed.", z, z_prime, i+1, j+1)
-
-        # Optional: Lamdification
-        #if lambdified:
-       #     if halfplane == "coincidence":
-        #        warnings.warn("Lambdification at coincidence point not possible.")
-        #        return fourier_entry
-        #    if not fourier_entry.free_symbols:
-        #        warnings.warn("Lambdification not possible if all symbols have been evaluated.")
-        #        return fourier_entry
-        #    expr = fourier_entry.as_expr()
-        #    fourier_entry = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
-        #    log.debug("Entry G(%s,%s)_%d%d lambdified.", z, z_prime, i+1, j+1)
         return fourier_entry
 
     def fourier_transform(self, 
@@ -706,14 +694,10 @@ class GreensFunctionCalculator:
         G_zzp = sp.MutableDenseMatrix.zeros(rows, cols)
         for i in range (rows):
             for j in range (cols):
-                entry = self.fourier_entry(i,j,z,z_prime,vals,solve_for,z_diff_sign,lambdified=False)
+                entry = self.fourier_entry(i,j,z,z_prime,vals,solve_for,z_diff_sign)
                 G_zzp[i,j] = entry
         log.info("Matrix G(z,z') was successfully computed.")
         G_zzp = G_zzp.as_immutable() # Matrix cannot be changed after this point
-        #if lambdified:
-        #    expr = G_zzp.as_expr()
-        #    G_zzp = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
-        #    log.debug("G(z,z') lambdified as full matrix.")
         return G_zzp
     
     def coincidence_limit(self, vals: dict, solve_for: int = None):
