@@ -739,9 +739,8 @@ class GreensFunctionCalculator:
                 return G_rrp
             else: 
                 delta_r = r - r_prime
-                G_r_greater = sp.lambdify((r, r_prime), G_z_greater.as_expr(), 'sympy')
-                G_r_lesser = sp.lambdify((r, r_prime), G_z_lesser.as_expr(), 'sympy')
                 G_rrp = sp.Heaviside(delta_r) * G_z_greater + sp.Heaviside(-delta_r) * G_z_lesser
+                G_rrp = sp.lambdify((r, r_prime), G_rrp.as_expr(), 'sympy')
                 return G_rrp
         return G_r
     # endregion
