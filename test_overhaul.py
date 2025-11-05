@@ -131,8 +131,8 @@ if Gr_general.shape: print("Shape Gr_general: ", Gr_general.shape)
 log.info("COMPARING RESULTS:")
 diff_gen = Gz_00 - Gr_general[0,0]
 diff_coin = G_coin_00 - Gr_coin[0,0]
-print("diff_gen = ", diff_gen)
-print("diff_coin = ", diff_coin)
-print("diff_gen_eval = ", diff_gen.evalf(10))
-print("diff_coin_eval = ", diff_coin.evalf(10))
+print("diff_gen = ", diff_gen) #vanishes
+print("diff_coin = ", diff_coin) # surprisingly large due to default cutoff that creates branch jumps
+print("diff_gen_eval = ", diff_gen.evalf(10)) #vanishes
+print("diff_coin_eval = ", diff_coin.evalf(10)) # order e-12, not sure why not simply zero. The objects should literally be the same
 
