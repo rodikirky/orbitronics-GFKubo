@@ -47,20 +47,18 @@ log.info("Logging ready.")
 #######################################
 # Orbitronics system in symbolic mode
 #######################################
-symbolic_mode = True
 mass = sp.symbols("m", real=True, positive=True)
 orbital_texture_coupling = sp.symbols("gamma", real=True)
 #orbital_texture_coupling = 0
 exchange_interaction_coupling = sp.symbols("J", real=True)
 #exchange_interaction_coupling = 0 # with J=0 determinant is an even polynomial in k
 mag1, mag2, mag3 = sp.symbols("M_1 M_2 M_3", real=True)
-magnetisation = sanitize_vector([mag1, mag2, mag3], symbolic=symbolic_mode)
+magnetisation = sanitize_vector([mag1, mag2, mag3], symbolic=True)
 
 system3D = OrbitronicHamiltonianSystem(mass=mass,
                                        orbital_texture_coupling=orbital_texture_coupling,
                                        exchange_interaction_coupling=exchange_interaction_coupling,
-                                       magnetisation=magnetisation,
-                                       symbolic=symbolic_mode)
+                                       magnetisation=magnetisation)
 def hamiltonian(momentum):
     H_k = system3D.get_hamiltonian(momentum)
     return H_k
@@ -105,17 +103,36 @@ assert len(REQUIRED) == len(vals)
 #det_poles = calc.poly_poles(det,vals)
 z = sp.symbols("z", real=True, positive=True)
 z_prime = sp.symbols("z'", real=True, positive=False)
-Gz_00 = calc.fourier_entry(0, 0, z, z_prime, vals, lambdified=False)
+log.info("COMPUTING Gz_00:")
+Gz_00 = calc.fourier_entry(0, 0, z, z_prime, vals)
 #Gz_fullmatrix = calc.fourier_transform(z, z_prime, vals,lambdified=False)
 #G_r = calc.rspace_greens_function_last_dim(z, z_prime,vals)
 #assert G_r == Gz_fullmatrix
 #G_coincide = calc.coincidence_limit(vals)
-G_coin_00 = calc.fourier_entry(0, 0, z=sp.Float(0), z_prime=sp.Float(0), vals=vals, lambdified=False)
-Gz_00_coin_limit = Gz_00.subs({z: sp.Float(0), z_prime: sp.Float(0)})
-difference = G_coin_00 - Gz_00_coin_limit
-diff_eval = difference.evalf(10) # numerical evaluation to 10 digits
-print("difference: ", diff_eval)
-with open(Path("results") / "G_coin_00.pkl", "wb") as f:
-    pickle.dump(G_coin_00, f)
-with open(Path("results") / "coin_difference_to_subs.pkl", "wb") as f:
-    pickle.dump(difference, f)
+log.info("COMPUTING G_coin_00:")
+G_coin_00 = calc.fourier_entry(0, 0, z=sp.Float(0), z_prime=sp.Float(0), vals=vals)
+#Gz_00_coin_limit = Gz_00.subs({z: sp.Float(0), z_prime: sp.Float(0)})
+#difference = G_coin_00 - Gz_00_coin_limit
+#diff_eval = difference.evalf(10) # numerical evaluation to 10 digits
+#print("difference: ", diff_eval)
+#with open(Path("results") / "G_coin_00.pkl", "wb") as f:
+#    pickle.dump(G_coin_00, f)
+#with open(Path("results") / "coin_difference_to_subs.pkl", "wb") as f:
+#    pickle.dump(difference, f)
+log.info("COMPUTNG CALLABLE:")
+Gr_callable = calc.rspace_greens_callable(vals)
+log.info("EVALUATING CALLABLE:")
+Gr_coin = Gr_callable(0,0)
+print("Type Gr_coin: ", type(Gr_coin))
+if Gr_coin.shape: print("Shape Gr_coin: ", Gr_coin.shape)
+Gr_general = Gr_callable(z, z_prime)
+print("Type Gr_general: ", type(Gr_general))
+if Gr_general.shape: print("Shape Gr_general: ", Gr_general.shape)
+log.info("COMPARING RESULTS:")
+diff_gen = Gz_00 - Gr_general[0,0]
+diff_coin = G_coin_00 - Gr_coin[0,0]
+print("diff_gen = ", diff_gen)
+print("diff_coin = ", diff_coin)
+print("diff_gen_eval = ", diff_gen.evalf(10))
+print("diff_coin_eval = ", diff_coin.evalf(10))
+

@@ -87,7 +87,6 @@ class OrbitronicHamiltonianSystem:
 
     def get_potential(self, momentum: Union[np.ndarray, List, sp.Matrix]) -> Union[np.ndarray, sp.Matrix]:
         """Compute symbolic or numeric potential energy."""
-        b = self.backend
         k = sanitize_vector(momentum, symbolic=True)
 #
         dot_kL = sum((k[i] * self.L[i]

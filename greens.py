@@ -703,29 +703,59 @@ class GreensFunctionCalculator:
     def coincidence_limit(self, vals: dict, solve_for: int = None):
         log.info("Computing matrix G(0,0) at coincidence z=z'.")
         G_coincide = self.fourier_transform(sp.Float(0), sp.Float(0), vals, solve_for=solve_for)
+        assert not G_coincide.free_symbols, "Coincidence value must not contain any free symbols. Investigate."
         log.info("Full coincidence matrix G(0,0) successfully computed.")
         return G_coincide
     
     def rspace_greens_callable(self, vals: dict, solve_for: int = None) -> Callable:
-        z, zp = sp.symbols("z z'", real=True)
-        G_z_greater = self.fourier_transform(z, zp, vals, solve_for=solve_for, z_diff_sign=sp.Int(1)) 
-        G_z_lesser = self.fourier_transform(z, zp, vals, solve_for=solve_for, z_diff_sign=sp.Int(-1))
-        G_z_coin = self.coincidence_limit(vals, solve_for=solve_for)
-        def G_r(r, r_prime):
-            if not (r.is_real and r_prime.is_real):
-                raise ValueError(f"Variables must be real symbols or real numbers.")
-            if r == r_prime:
-                return G_z_coin
-            elif r.is_number and r_prime.is_number:
-                if r > r_prime: expr = G_z_greater.as_expr()
-                if r < r_prime: expr = G_z_lesser.as_expr()
-                G_rrp = sp.lambdify((r, r_prime), expr, 'mpmath')
-                return G_rrp
+        log.info("Constructing the real space GF as Callable.")
+        z, zp = sp.symbols("z zp", real=True)
+        # Immutable matrices for all three branches:
+        G_z_greater = self.fourier_transform(z, zp, vals, solve_for=solve_for, z_diff_sign=sp.Integer(1)) # z > z'
+        G_z_lesser = self.fourier_transform(z, zp, vals, solve_for=solve_for, z_diff_sign=sp.Integer(-1)) # z < z'
+        G_coin = self.coincidence_limit(vals, solve_for=solve_for) # z == z'
+        # sp.Heaviside weighing of all branches:
+        delta_z = z - zp
+        G_zzp = sp.Heaviside(delta_z) * G_z_greater + sp.Heaviside(-delta_z) * G_z_lesser
+
+        def _is_number(x):
+            return isinstance(x, (int, float, complex)) or (isinstance(x, sp.Basic) and x.is_number)
+
+        def _is_real_scalar(x):
+            if isinstance(x, (int, float)): return True
+            if isinstance(x, complex):       return (x.imag == 0)
+            if isinstance(x, sp.Basic):      return x.is_real is True
+            return False
+
+        # Callable construction:
+        def G_r(r, r_prime, eval_prec: int = 10) -> sp.Matrix:
+            # Substitution:
+            subvals = {z: r, zp: r_prime}
+            G_greater = G_z_greater.subs(subvals)
+            G_lesser = G_z_lesser.subs(subvals)
+            G_rrp = G_zzp.subs(subvals)
+
+            # Safe guard:
+            if not (_is_real_scalar(r) and _is_real_scalar(r_prime)):
+                raise ValueError("Inputs must be real numbers or real SymPy expressions/symbols.")
+            
+            if _is_number(r) and _is_number(r_prime):
+                # Numeric evaluation: choose branch explicitly
+                log.debug("Inputs are numbers. Evaluating result numerically.")
+                if r == r_prime:
+                    return G_coin.evalf(eval_prec)  # constant matrix/expression
+                elif r > r_prime:
+                    return G_greater.evalf(eval_prec)
+                else:
+                    return G_lesser.evalf(eval_prec)
+            elif r == r_prime:
+                return G_coin.evalf(eval_prec)
             else: 
-                delta_r = r - r_prime
-                G_rrp = sp.Heaviside(delta_r) * G_z_greater + sp.Heaviside(-delta_r) * G_z_lesser
-                G_rrp = sp.lambdify((r, r_prime), G_rrp.as_expr(), 'sympy')
+                # Symbolic evaluation: piecewise construction
+                log.debug("Symbolic input. Result weighs both branches with sp.Heaviside.")
                 return G_rrp
+            
+        log.info("Callable construction successful.")
         return G_r
     # endregion
 
