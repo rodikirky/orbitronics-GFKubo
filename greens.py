@@ -606,8 +606,7 @@ class GreensFunctionCalculator:
                       z: float | sp.Basic, z_prime: float | sp.Basic,
                       vals: dict,
                       solve_for: int = None,
-                      z_diff_sign: int = None,
-                      lambdified: bool = True):
+                      z_diff_sign: int = None):
         log.info("Computing matrix entry G(%s,%s)_%d%d.", z, z_prime, i+1, j+1)
         # 1) Halfplane choice:
         halfplane = self._halfplane_choice(z, z_prime, z_diff_sign=z_diff_sign)
@@ -685,24 +684,23 @@ class GreensFunctionCalculator:
             log.info("Entry G(%s,%s)_%d%d successfully computed.", z, z_prime, i+1, j+1)
 
         # Optional: Lamdification
-        if lambdified:
-            if halfplane == "coincidence":
-                warnings.warn("Lambdification at coincidence point not possible.")
-                return fourier_entry
-            if not fourier_entry.free_symbols:
-                warnings.warn("Lambdification not possible if all symbols have been evaluated.")
-                return fourier_entry
-            expr = fourier_entry.as_expr()
-            fourier_entry = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
-            log.debug("Entry G(%s,%s)_%d%d lambdified.", z, z_prime, i+1, j+1)
+        #if lambdified:
+       #     if halfplane == "coincidence":
+        #        warnings.warn("Lambdification at coincidence point not possible.")
+        #        return fourier_entry
+        #    if not fourier_entry.free_symbols:
+        #        warnings.warn("Lambdification not possible if all symbols have been evaluated.")
+        #        return fourier_entry
+        #    expr = fourier_entry.as_expr()
+        #    fourier_entry = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
+        #    log.debug("Entry G(%s,%s)_%d%d lambdified.", z, z_prime, i+1, j+1)
         return fourier_entry
 
     def fourier_transform(self, 
                           z: float | sp.Basic, z_prime: float | sp.Basic,
                           vals: dict,
                           solve_for: int = None,
-                          z_diff_sign: int = None,
-                          lambdified: bool = False):
+                          z_diff_sign: int = None):
         log.info("Fourier transformation of G(k) to G(z.z') started.")
         rows, cols = self.I.shape
         G_zzp = sp.MutableDenseMatrix.zeros(rows, cols)
@@ -712,24 +710,40 @@ class GreensFunctionCalculator:
                 G_zzp[i,j] = entry
         log.info("Matrix G(z,z') was successfully computed.")
         G_zzp = G_zzp.as_immutable() # Matrix cannot be changed after this point
-        if lambdified:
-            expr = G_zzp.as_expr()
-            G_zzp = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
-            log.debug("G(z,z') lambdified as full matrix.")
+        #if lambdified:
+        #    expr = G_zzp.as_expr()
+        #    G_zzp = sp.lambdify((z,z_prime), expr, 'mpmath') # lambdified function of (z,z') for speed and precision
+        #    log.debug("G(z,z') lambdified as full matrix.")
         return G_zzp
-    
-    def rspace_greens_function_last_dim(self, 
-                               z: float | sp.Basic, z_prime: float | sp.Basic,
-                               vals: dict,
-                               z_diff_sign: int = None):
-        G_r = self.fourier_transform(z, z_prime, vals, z_diff_sign, lambdified=False) 
-        return G_r
     
     def coincidence_limit(self, vals: dict, solve_for: int = None):
         log.info("Computing matrix G(0,0) at coincidence z=z'.")
         G_coincide = self.fourier_transform(sp.Float(0), sp.Float(0), vals, solve_for=solve_for)
         log.info("Full coincidence matrix G(0,0) successfully computed.")
         return G_coincide
+    
+    def rspace_greens_callable(self, vals: dict, solve_for: int = None) -> Callable:
+        z, zp = sp.symbols("z z'", real=True)
+        G_z_greater = self.fourier_transform(z, zp, vals, solve_for=solve_for, z_diff_sign=sp.Int(1)) 
+        G_z_lesser = self.fourier_transform(z, zp, vals, solve_for=solve_for, z_diff_sign=sp.Int(-1))
+        G_z_coin = self.coincidence_limit(vals, solve_for=solve_for)
+        def G_r(r, r_prime):
+            if not (r.is_real and r_prime.is_real):
+                raise ValueError(f"Variables must be real symbols or real numbers.")
+            if r == r_prime:
+                return G_z_coin
+            elif r.is_number and r_prime.is_number:
+                if r > r_prime: expr = G_z_greater.as_expr()
+                if r < r_prime: expr = G_z_lesser.as_expr()
+                G_rrp = sp.lambdify((r, r_prime), expr, 'mpmath')
+                return G_rrp
+            else: 
+                delta_r = r - r_prime
+                G_r_greater = sp.lambdify((r, r_prime), G_z_greater.as_expr(), 'sympy')
+                G_r_lesser = sp.lambdify((r, r_prime), G_z_lesser.as_expr(), 'sympy')
+                G_rrp = sp.Heaviside(delta_r) * G_z_greater + sp.Heaviside(-delta_r) * G_z_lesser
+                return G_rrp
+        return G_r
     # endregion
 
     # region Ambiguity helpers 

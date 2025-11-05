@@ -1,4 +1,6 @@
 from utils import invert_matrix
+import sympy as sp
+from typing import Callable
 '''
 Assuming a Hamiltonian structure composed of two half-spaces joined at an interface,
 this module constructs the full interfacial Green's function G(z, z'; ω) that satisfies the interface boundary conditions.
@@ -8,28 +10,25 @@ where m(z) and V(z) are piecewise constant in the left and right half-spaces, an
 '''
 class InterfacialGreensFunctionConstructor:
     def __init__(self,
-                 z,
-                 z_prime,
-                 greens_left,
-                 greens_right,
-                 potential_interface,
-                 interface_position=0.0):
-        self.z = z
-        self.z_prime = z_prime
-        self.Gl = greens_left
-        self.Gr = greens_right
-        self.V_int = potential_interface
-        self.z_int = interface_position
-        # no symbolic parameter; mode must be symbolic to substitute later
+                 greens_left_retard: Callable,
+                 coincidence_left: sp.Matrix,
+                 greens_right_retard: Callable,
+                 coincidence_right: sp.Matrix,
+                 interface_hamiltonian: sp.Matrix):
+        self.G_L = greens_left_retard
+        self.G_R = greens_right_retard
+        self.coin_L = coincidence_left
+        self.coin_R = coincidence_right
+        self.H_int = interface_hamiltonian
+        if self.coin_L.free_symbols:
+            raise ValueError(f"'coincidence_left' must not have any free symbols. Got {self.coin_L.free_symbols}.")
+        if self.coin_R.free_symbols:
+            raise ValueError(f"'coincidence_right' must not have any free symbols. Got {self.coin_R.free_symbols}.")
+        if self.H_int.free_symbols:
+            raise ValueError(f"'interface_hamiltonian' must not have any free symbols. Got {self.H_int.free_symbols}.")
 
-    def get_boundary_value(self):
-        Gl = self.Gl
-        Gr = self.Gr
-        # Gl.subs({self.z: 0, self.z_prime: 0}) not allowed due to ambiguity at z=z'
-
-
-
-    def get_halfspace_greens_function(self, side: str):
+    # region Halfspace GF
+    def halfspace_greens_function(self, side: str):
         if side == "left":
             G = self.Gl
         elif side == "right":
@@ -44,3 +43,9 @@ class InterfacialGreensFunctionConstructor:
         return G_half
     
 
+
+    # endregion
+
+    # region Full GF
+
+    # endregion
