@@ -92,6 +92,8 @@ class InterfacialGreensFunctionConstructor:
         
         return G_full
         
+    # Add a retarded->advanced transformation method here
+    
     # endregion
 
     # region Internal utilities
