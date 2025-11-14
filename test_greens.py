@@ -1,455 +1,137 @@
 from greens import GreensFunctionCalculator
-import numpy as np
 import sympy as sp
-from system import OrbitronicHamiltonianSystem
-from utils import invert_matrix, hermitian_conjugate
-import pytest
-from typing import Union
 
-# ────────────────────────────────
-# Basic Instantiation
-# ────────────────────────────────
+# region Hamiltonians
+## Constant Hamiltonians (ignore k, test N×N size only):
+def constant_hamiltonian_3band(k_vec):
+    """3x3 constant Hamiltonian."""
+    return sp.eye(3)
+def constant_hamiltonian_2band(k_vec): 
+    """2x2 constant Hamiltonian."""
+    return sp.eye(2)
+def constant_hamiltonian_1band(k_vec):
+    """1x1 constant Hamiltonian."""
+    return sp.eye(1)
+## Numeric:
 
-def test_create_symbolic_greens_function():
-    gamma, J, Mx, omega = sp.symbols("gamma J Mx omega")
-    m, eta = sp.symbols("m eta", real=True, positive=True)
-
-    system = OrbitronicHamiltonianSystem(
-        mass=m,
-        orbital_texture_coupling=gamma,
-        exchange_interaction_coupling=J,
-        magnetisation=[Mx, 0, 0],
-        symbolic=True
-    )
-    greens_calculator = GreensFunctionCalculator(
-        hamiltonian=system.get_hamiltonian,
-        identity=system.identity,
-        symbolic=system.symbolic,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-    # Basic assertions to confirm setup
-    assert callable(greens_calculator.H), "Hamiltonian should be callable"
-    assert isinstance(greens_calculator.I, sp.Matrix), "Identity should be a sympy Matrix in symbolic mode"
-    assert greens_calculator.symbolic is True, "In symbolic mode, it should be symbolic is True"
-    assert greens_calculator.omega == omega, "omega should remain unchanged after initiation"
-    assert greens_calculator.eta == eta, "eta should remain unchanged after initiation"
-    assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
-
-def test_create_numeric_greens_function():
-    # Use concrete numeric values for parameters
-    m, gamma, J, Mx = 1.0, 2.0, 0.5, 0.8
-    omega, eta = 1.2, 0.01
-
-    system = OrbitronicHamiltonianSystem(
-        mass=m,
-        orbital_texture_coupling=gamma,
-        exchange_interaction_coupling=J,
-        magnetisation=[Mx, 0, 0]
-    )
-    greens_calculator = GreensFunctionCalculator(
-        hamiltonian=system.get_hamiltonian,
-        identity=system.identity,
-        symbolic=system.symbolic,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-    # Basic assertions to confirm setup
-    assert callable(greens_calculator.H), "Hamiltonian should be callable"
-    assert isinstance(greens_calculator.I, np.ndarray), "Identity should be a numpy array in numeric mode"
-    assert greens_calculator.symbolic is False, "The system should default to numeric mode with symbolic=False"
-    assert greens_calculator.omega == 1.2, "omega should remain unchanged after initiation"
-    assert greens_calculator.eta == 0.01, "eta should remain unchanged after initiation"
-    assert greens_calculator.q == 1, "It should be q==1 for retarded=True"
-
-
-# ────────────────────────────────
-# GF construction in k-space 
-# ────────────────────────────────
-
-def test_symbolic_greens_function_shape():
-    gamma, J, Mx, omega = sp.symbols("gamma J Mx omega")
-    m, eta = sp.symbols("m eta", real=True, positive=True)
-
-    system = OrbitronicHamiltonianSystem(
-        mass=m,
-        orbital_texture_coupling=gamma,
-        exchange_interaction_coupling=J,
-        magnetisation=[Mx, 0, 0],
-        symbolic=True
-    )
-    greens_calculator = GreensFunctionCalculator(
-        hamiltonian=system.get_hamiltonian,
-        identity=system.identity,
-        symbolic=system.symbolic,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-    G = greens_calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0])) # zero momentum test run
-    assert isinstance(G, sp.Matrix), "The Greens function should be a sympy matrix in symbolic mode"
-    assert G.shape == (3, 3), "Expected shape (3,3) for G"
-
-def test_numeric_greens_function_shape():
-    # Use concrete numeric values for parameters
-    m, gamma, J, Mx = 1.0, 2.0, 0.5, 0.8
-    omega, eta = 1.2, 0.01
-
-    system = OrbitronicHamiltonianSystem(
-        mass=m,
-        orbital_texture_coupling=gamma,
-        exchange_interaction_coupling=J,
-        magnetisation=[Mx, 0, 0],
-        symbolic=False
-    )
-    greens_calculator = GreensFunctionCalculator(
-        hamiltonian=system.get_hamiltonian,
-        identity=system.identity,
-        symbolic=False,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-    G = greens_calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))  # zero momentum
-    assert isinstance(G, np.ndarray), "Expected a NumPy ndarray in numeric mode"
-    assert G.shape == (3, 3), "Green's function should be 3x3 in this model"
-
-def test_symbolic_identity_hamiltonian():
+## Diagonal "kinetic" Hamiltonians (dimension-aware in k-space):
+def kinetic_hamiltonian_3D(k_vec):
+    """3D k-space, 3x3 band."""
+    kx, ky, kz = k_vec
+    H_k = kx**2 + ky**2 + kz**2
+    return H_k * sp.eye(3)
+def kinetic_hamiltonian_2D(k_vec):
+    """2D k-space, 2x2 band."""
+    kx, ky = k_vec
+    H_k = kx**2 + ky**2
+    return H_k * sp.eye(2)
+def kinetic_hamiltonian_1D_scalar(k):
     """
-    For known input-output pair comparison, we use the identity function as a Hamiltonian.
+    1D k-space, 1x1 band.
+    For d=1 the class passes a scalar to H(k), so we accept a scalar,
+    and return a scalar (to trigger the d==1 code path).
     """
-    eta = sp.symbols("eta", real=True, positive=True)
-    omega = sp.symbols("omega", real=True)
+    return k**2  # will become a 1×1 Matrix via sp.Matrix([H(k)])
 
-    def identity_hamiltonian(k):
-        return sp.eye(3)
-    calculator = GreensFunctionCalculator(
-        hamiltonian=identity_hamiltonian,
-        identity=sp.eye(3),
-        symbolic=True,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-    G = calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
-    # Expected result is known
-    expected = invert_matrix((omega + sp.I * eta) * sp.eye(3) - sp.eye(3), symbolic=True)
-    assert G==expected
-
-def test_numeric_identity_hamiltonian():
-    """
-    For known input-output pair comparison, we use the identity function as a Hamiltonian.
-    """
-    def identity_hamiltonian(k):
-        return np.eye(3)
-    omega, eta = 2.0, 0.1
-    calculator = GreensFunctionCalculator(
-        hamiltonian=identity_hamiltonian,
-        identity=np.eye(3),
-        symbolic=False,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-    G = calculator.compute_kspace_greens_function(np.array([0, 0, 0]))
-    # Expected result is known:
-    expected = np.linalg.inv((omega + 1j * eta) * np.eye(3) - np.eye(3))
-    np.testing.assert_allclose(G, expected)
-
-def test_numeric_retarded_vs_advanced():
-    omega, eta = 2.0, 0.01
-
-    def simple_H(k): 
-        return np.eye(2)
-    
-    I = np.eye(2)
-
-    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, broadening=eta, retarded=True, dimension=2)
-    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=False, energy_level=omega, broadening=eta, retarded=False, dimension=2)
-
-    momentum = np.array([0.0, 0.0]) # since H(k) is constant here, k does not actually matter
-    G_ret = retarded_calc.compute_kspace_greens_function(momentum)
-    G_adv = advanced_calc.compute_kspace_greens_function(momentum)
-
-    G_ret_dagger = hermitian_conjugate(G_ret, symbolic=False)
-
-    # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
-    np.testing.assert_allclose(G_adv, G_ret_dagger, rtol=1e-10, err_msg="Advanced should be Hermitian conjugate of Retarded")
-
-def test_symbolic_retarded_vs_advanced():
-    omega, eta = 2.0, 0.01
-
-    def simple_H(k): 
-        return sp.eye(2)
-    
-    I = sp.eye(2)
-
-    retarded_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, broadening=eta, retarded=True, dimension=2)
-    advanced_calc = GreensFunctionCalculator(simple_H, I, symbolic=True, energy_level=omega, broadening=eta, retarded=False, dimension=2)
-
-    momentum = [0.0, 0.0] # since H(k) is constant here, k does not actually matter
-    G_ret = retarded_calc.compute_kspace_greens_function(momentum)
-    G_adv = advanced_calc.compute_kspace_greens_function(momentum)
-
-    G_ret_dagger = hermitian_conjugate(G_ret, symbolic=True)
-
-    # Check Hermitian conjugate relationship: G_adv ≈ G_ret†
-    assert G_adv == G_ret_dagger, "Advanced should be Hermitian conjugate of Retarded"
+## Non-square Hamiltonian for error testing:
+def nonsquare_hamiltonian(k_vec):
+    return sp.Matrix([[1, 2, 3],
+                      [4, 5, 6]])  # 2×3, not square
+# endregion
 
 # ────────────────────────────────
-# Eigenbasis computation
+# region Init, repr, str
 # ────────────────────────────────
+def test_initiate_calculator_3D():
+    calc = GreensFunctionCalculator(constant_hamiltonian_3band)
+    assert callable(calc.H)
+    assert calc.d == 3
+    assert isinstance(calc.k_symbols, tuple)
+    assert isinstance(calc.k_vec, sp.Matrix)
+    assert calc.H_k == sp.eye(3)
+    assert calc.N == 3
+    assert calc.I == calc.H_k
+    assert calc.q == 1
+    assert (isinstance(calc.omega, sp.Symbol) and isinstance(calc.eta, sp.Symbol))
+    assert calc.green_type == "retarded (+iη)"
 
-def test_symbolic_eigenvalues_shape_and_form():
-    I = sp.eye(2)
-    def simple_symbolic_h(kvec):
-        return sp.Matrix([
-            [kvec[0], 0],
-            [0, -kvec[0]]
-        ])
-    calc = GreensFunctionCalculator(
-        hamiltonian=simple_symbolic_h,
-        identity=I,
-        symbolic=True,
-        energy_level=0,
-        broadening=0.1,
-        dimension=2
-    )
-    k = calc.k_symbols
-    _, eigenvalues, _ = calc._eigenvalues_greens_inverse(k)
-    assert isinstance(eigenvalues, (list, sp.Matrix))
-    assert all(isinstance(ev, sp.Basic) for ev in eigenvalues)
-    assert len(eigenvalues) == 2
+def test_initiate_calculator_2D():
+    calc = GreensFunctionCalculator(constant_hamiltonian_2band)
+    assert callable(calc.H)
+    assert calc.d == 3
+    assert isinstance(calc.k_symbols, tuple)
+    assert isinstance(calc.k_vec, sp.Matrix)
+    assert calc.H_k == sp.eye(2)
+    assert calc.N == 2
+    assert calc.I == calc.H_k
+    assert calc.q == 1
+    assert (isinstance(calc.omega, sp.Symbol) and isinstance(calc.eta, sp.Symbol))
+    assert calc.green_type == "retarded (+iη)"
 
-# ────────────────────────────────
-# Roots computation
-# ────────────────────────────────
+def test_initiate_calculator_1D():
+    calc = GreensFunctionCalculator(constant_hamiltonian_1band)
+    assert callable(calc.H)
+    assert calc.d == 3
+    assert isinstance(calc.k_symbols, tuple)
+    assert isinstance(calc.k_vec, sp.Matrix)
+    assert calc.H_k == sp.eye(1)
+    assert calc.N == 1
+    assert calc.I == calc.H_k
+    assert calc.q == 1
+    assert (isinstance(calc.omega, sp.Symbol) and isinstance(calc.eta, sp.Symbol))
+    assert calc.green_type == "retarded (+iη)"
 
-def test_roots_return_expected_expressions():
-    I = sp.eye(2)
-    def simple_symbolic_h(kvec):
-        return sp.Matrix([
-            [kvec[0], 0],
-            [0, -kvec[0]]
-        ])
-    calc = GreensFunctionCalculator(
-        hamiltonian=simple_symbolic_h,
-        identity=I,
-        symbolic=True,
-        energy_level=0,
-        broadening=0.00,
-        dimension=2
-    )
-    results = calc.compute_roots_greens_inverse(solve_for=0)
-    assert isinstance(results, list)
-    assert all(len(pair) == 2 for pair in results)
-    assert any(sp.S(0) in sol for _, sol in results if isinstance(sol, sp.FiniteSet))
+def test_initiate_advanced_3D():
+    calc = GreensFunctionCalculator(constant_hamiltonian_3band, retarded=False)
+    assert callable(calc.H)
+    assert calc.d == 3
+    assert isinstance(calc.k_symbols, tuple)
+    assert isinstance(calc.k_vec, sp.Matrix)
+    assert calc.H_k == sp.eye(3)
+    assert calc.N == 3
+    assert calc.I == calc.H_k
+    assert calc.q == -1
+    assert (isinstance(calc.omega, sp.Symbol) and isinstance(calc.eta, sp.Symbol))
+    assert calc.green_type == "advanced (-iη)"
 
-def test_warns_on_non_polynomial_roots():
-    def non_polynomial_hamiltonian(kvec):
-        kx, ky, kz = kvec
-        return sp.Matrix([
-            [sp.sin(kx), 0],
-            [0, -sp.sin(kx)]
-        ])
-    calc = GreensFunctionCalculator(
-        hamiltonian=non_polynomial_hamiltonian,
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=0,
-        broadening=0.01
-    )
-    
-    with pytest.warns(UserWarning, match="not polynomial"):
-        calc.compute_roots_greens_inverse(solve_for=0)
+# add tests fpr repr and str here
 
-def test_invalid_solve_for_index_raises_value_error():
-    calc = GreensFunctionCalculator(
-        hamiltonian=lambda k: sp.Matrix([[k[0], 0], [0, -k[0]]]),
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=0,
-        broadening=0.1
-    )
-
-    with pytest.raises(ValueError, match="out of range"):
-        calc.compute_roots_greens_inverse(solve_for=5)
-
+# endregion
 
 # ────────────────────────────────
-# 1D GF construction in real space
+# region Matrix construct
 # ────────────────────────────────
+def test_greens_inverse_constant_3D():
+    calc = GreensFunctionCalculator(constant_hamiltonian_3band)
+    G_inv = calc.greens_inverse()
+    assert G_inv.shape[0] == calc.N
+    assert G_inv.free_symbols
+    assert G_inv[0,1] == 0
 
-def test_rspace_green_integrates_known_form():
-    z, z_prime = sp.symbols("z z'", real=True)
-    eta = sp.symbols("eta", real=True, positive=True)
+def test_greens_inverse_diag_3D():
+    calc = GreensFunctionCalculator(kinetic_hamiltonian_3D)
+    G_inv = calc.greens_inverse()
+    assert G_inv.shape[0] == calc.N
+    assert G_inv.free_symbols & set(calc.k_vec)
+    assert G_inv[0,1] == 0
 
-    def H(kvec):
-        _, _, kz = kvec
-        return sp.Matrix([[kz, 0], [0, -kz]])  # Diagonal, easy test
+def test_greens_inverse_diag_2D():
+    calc = GreensFunctionCalculator(kinetic_hamiltonian_2D)
+    G_inv = calc.greens_inverse()
+    assert G_inv.shape[0] == calc.N
+    assert G_inv.free_symbols & set(calc.k_vec)
+    assert G_inv[0,1] == 0
 
-    calc = GreensFunctionCalculator(
-        hamiltonian=H,
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=0,
-        broadening=eta
-    )
+def test_greens_inverse_diag_1D():
+    calc = GreensFunctionCalculator(kinetic_hamiltonian_1D_scalar)
+    G_inv = calc.greens_inverse()
+    assert G_inv.shape[0] == calc.N
+    assert G_inv.free_symbols & set(calc.k_vec)
 
-    result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
-    for label, expr in result:
-        assert isinstance(expr, sp.Basic)
-        assert "Integral" not in str(expr)
-
-def test_warns_when_integral_cannot_be_evaluated():
-    z, z_prime = sp.symbols("z z'", real=True)
-    eta = sp.symbols("eta", real=True, positive=True)
-
-    def H(kvec):
-        # A non-polynomial (e.g. transcendental) dispersion: sympy can't integrate this
-        _, _, kz = kvec
-        return sp.Matrix([[sp.sin(kz), 0], [0, -sp.sin(kz)]])
-
-    calc = GreensFunctionCalculator(
-        hamiltonian=H,
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=0,
-        broadening=eta
-    )
-
-    with pytest.warns(UserWarning, match="unevaluated"):
-        result = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
-        assert any(expr.atoms(sp.Integral) for _, expr in result)
-
-def test_result_depends_on_difference_not_absolutes():
-    eta = sp.symbols("eta", real=True, positive=True)
-
-    def H(kvec):
-            _, _, kz = kvec
-            return sp.Matrix([[kz, 0], [0, -kz]])  # Diagonal, easy test
-
-    calc = GreensFunctionCalculator(
-        hamiltonian=H,
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=0,
-        broadening=eta
-    )
-    
-    result1 = calc.compute_rspace_greens_symbolic_1d(z=1, z_prime=0)
-    result2 = calc.compute_rspace_greens_symbolic_1d(z=2, z_prime=1)    
-    for (label1, expr1), (label2, expr2) in zip(result1, result2):
-        assert sp.simplify(expr1 - expr2) == 0
-
-def test_multiple_bands_return_distinct_results():
-    z, z_prime = sp.symbols("z z'", real=True)
-
-    def H(kvec):
-        kx, ky, kz = kvec
-        return sp.Matrix([[kz, 0], [0, 2 * kz]])
-
-    calc = GreensFunctionCalculator(
-        hamiltonian=H,
-        identity=sp.eye(2),
-        symbolic=True,
-        energy_level=0,
-        broadening=0.1
-    )
-
-    results = calc.compute_rspace_greens_symbolic_1d(z, z_prime)
-    assert results[0][1] != results[1][1]
-
-def test_retarded_greens_function_vanishes_without_poles_in_upper_half_plane():
-    z, z_prime = sp.symbols("z z'", real=True)
-
-    def H(kvec):
-        _, _, kz = kvec
-        return sp.Matrix([[kz]])
-
-    calc = GreensFunctionCalculator(
-        hamiltonian=H,
-        identity=sp.eye(1),
-        symbolic=True,
-        energy_level=0,
-        broadening=1e-15,  # smallest eta that is not disregarded in the solver
-        retarded=True
-    )
-    
-    with pytest.warns(UserWarning, match="No poles passed"):
-        result = calc.compute_rspace_greens_symbolic_1d_along_last_dim(z, z_prime,z_diff_sign=-1)  # z<z' scenario
-        G_expr = result[0]
-
-        # Substitute values for explicit z, z′ such that z < z′
-        val = G_expr.subs({z: 0, z_prime: 1}).evalf()
-        assert abs(val) < 1e-6, f"Expected G(z=0, z′=1) ≈ 0, got {val}"
-    
+# endregion
 
 # ────────────────────────────────
-# Error Handling
+# region Inversion
 # ────────────────────────────────
 
-def test_numeric_noninvertible_matrix_raises():
-    def singular_hamiltonian(k):
-        return np.eye(3)  # ωI - 0 = ωI → always invertible, so instead:
-        # Return identity to cancel ω*I, i.e., ωI - I = 0 for ω=1
-
-    omega = 1.0
-    eta = 0.0
-    identity = np.eye(3)
-
-    # Catch the zero-eta warning during init
-    with pytest.warns(UserWarning, match=r"Broadening"):
-        calculator = GreensFunctionCalculator(
-            hamiltonian=singular_hamiltonian,
-            identity=identity,
-            symbolic=False,
-            energy_level=omega,
-            broadening=eta,
-            retarded=True
-        )
-
-    # Then, the numeric singularity error
-    with pytest.raises(ValueError, match=r"Matrix is not invertible"):
-        calculator.compute_kspace_greens_function(np.array([0.0, 0.0, 0.0]))
-
-def test_symbolic_noninvertible_matrix_raises():
-    omega, eta = sp.symbols("omega eta", real=True, positive=True)
-
-    # We want: (omega + i*eta)I - H(k) == zero matrix
-    # So set H(k) = (omega + i*eta)*I
-    def matched_hamiltonian(k):
-        return (omega + sp.I * eta) * sp.eye(2)
-
-    identity = sp.eye(2)
-
-    calculator = GreensFunctionCalculator(
-        hamiltonian=matched_hamiltonian,
-        identity=identity,
-        symbolic=True,
-        energy_level=omega,
-        broadening=eta,
-        retarded=True
-    )
-
-    with pytest.raises(ValueError, match="not invertible"):
-        calculator.compute_kspace_greens_function(sp.Matrix([0, 0, 0]))
-
-def test_warns_in_numeric_mode_returns_empty_list():
-    calc = GreensFunctionCalculator(
-        hamiltonian=lambda k: np.array([[k[0], 0], [0, -k[0]]]),
-        identity=np.eye(2),
-        symbolic=False,
-        energy_level=0,
-        broadening=0.1
-    )
-
-    with pytest.warns(UserWarning, match="Enable symbolic=True."):
-        roots = calc.compute_roots_greens_inverse(solve_for=0)
-        assert roots == []
-    
-    with pytest.warns(UserWarning, match="Enable symbolic=True."):
-        result = calc.compute_rspace_greens_symbolic_1d(sp.symbols("z"), sp.symbols("z'"))
-        assert result == []
+# endregion

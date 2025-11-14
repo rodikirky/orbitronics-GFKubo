@@ -169,7 +169,7 @@ class GreensFunctionCalculator:
 
         # Green's function type
         self.q = 1 if retarded else -1
-        self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (−iη)"
+        self.green_type = "retarded (+iη)" if self.q == 1 else "advanced (-iη)"
 
         #log.debug("Initialized %r", self) # developer snapshot for logs
         log.info("Initialized %s", self) # readable banner for operators/notebooks
@@ -251,8 +251,8 @@ class GreensFunctionCalculator:
             k_vec = sanitize_vector(momentum, symbolic=False, expected_dim=self.d) # ensure iterable and correct type and shape
             k_for_H = (k_vec[0] if self.d == 1 else k_vec) # scalar only for H(k), since H expects scalar, if d=1
             log.debug("Calling H(k) for %s; k=%s", getattr(self.H, "__name__", type(self.H).__name__), k_for_H)  
-            H_k = sanitize_matrix(H_k, symbolic=True, expected_size=self.N)
             H_k = self.H(k_for_H)  # Hamiltonian at momentum k
+            H_k = sanitize_matrix(H_k, symbolic=True, expected_size=self.N)
         log.debug("Computing G^{-1}(k) with: momentum=%s", momentum)
 
         imaginary_unit = sp.I
